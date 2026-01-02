@@ -1,0 +1,258 @@
+"""
+Entraînement du modèle U-Net pour la séparation de sources
+
+Méthode d'entraînement Oracle Mask :
+- Cible d'entraînement : oracle_mask = vocals / (mix + eps), calculé dans le domaine d'amplitude linéaire
+- Loss : L1(mask, oracle_mask), supervision directe
+"""
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import numpy as np
+import os
+
+try:
+    from tqdm import tqdm
+    HAS_TQDM = True
+except ImportError:
+    HAS_TQDM = False
+
+from data_generator import SpectrogramGenerator
+from unet_model import UNet
+
+
+class OracleMaskLoss(nn.Module):
+    """Oracle Mask Loss : L = || mask - oracle_mask ||₁"""
+    def __init__(self):
+        super(OracleMaskLoss, self).__init__()
+        self.l1 = nn.L1Loss()
+    
+    def forward(self, mask, oracle_mask):
+        return self.l1(mask, oracle_mask)
+
+
+def train_epoch(model, dataloader, criterion, optimizer, device, epoch, n_epochs):
+    """Entraîner un epoch"""
+    model.train()
+    total_loss = 0.0
+    num_batches = 0
+    
+    iterator = tqdm(dataloader, desc=f"Epoch {epoch}/{n_epochs}") if HAS_TQDM else dataloader
+    
+    for mix_spec, oracle_mask in iterator:
+        mix_spec = torch.FloatTensor(mix_spec).to(device)
+        oracle_mask = torch.FloatTensor(oracle_mask).to(device)
+        
+        optimizer.zero_grad()
+        mask = model(mix_spec)
+        loss = criterion(mask, oracle_mask)
+        
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        optimizer.step()
+        
+        total_loss += loss.item()
+        num_batches += 1
+        
+        if HAS_TQDM:
+            iterator.set_postfix({'loss': f'{loss.item():.4f}'})
+    
+    return total_loss / num_batches
+
+
+def validate(model, dataloader, criterion, device):
+    """Valider le modèle"""
+    model.eval()
+    total_loss = 0.0
+    num_batches = 0
+    
+    with torch.no_grad():
+        for mix_spec, oracle_mask in dataloader:
+            mix_spec = torch.FloatTensor(mix_spec).to(device)
+            oracle_mask = torch.FloatTensor(oracle_mask).to(device)
+            
+            mask = model(mix_spec)
+            loss = criterion(mask, oracle_mask)
+            
+            total_loss += loss.item()
+            num_batches += 1
+    
+    return total_loss / num_batches if num_batches > 0 else 0.0
+
+
+def load_checkpoint(checkpoint_path, model, optimizer, device):
+    """Charger un checkpoint"""
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    if optimizer is not None and 'optimizer_state_dict' in checkpoint:
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    
+    start_epoch = checkpoint.get('epoch', 0) + 1
+    best_loss = checkpoint.get('loss', checkpoint.get('best_loss', float('inf')))
+    return start_epoch, best_loss
+
+
+def train(
+    n_epochs: int = 20,
+    batch_size: int = 16,
+    learning_rate: float = 5e-4,
+    n_songs: int = 10,
+    save_dir: str = "checkpoints",
+    use_gpu: bool = True,
+    resume_from: str = None,
+    batches_per_epoch: int = 50
+):
+    """Entraîner le modèle U-Net"""
+    print("=" * 70)
+    print("Début de l'entraînement du modèle U-Net")
+    print("=" * 70)
+    
+    device = torch.device("cuda" if use_gpu and torch.cuda.is_available() else "cpu")
+    print(f"\nAppareil utilisé : {device}")
+    
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # Générateur de données
+    musdb_path = "/home/dyc/MUSDB18/musdb18"
+    generator = SpectrogramGenerator(
+        batch_size=batch_size,
+        chunk_duration=12.0,
+        musdb_path=musdb_path
+    )
+    
+    if n_songs < len(generator.mus.tracks):
+        generator.mus.tracks = generator.mus.tracks[:n_songs]
+    
+    class DataLoader:
+        def __init__(self, generator, batches_per_epoch):
+            self.generator = generator
+            self.batches_per_epoch = batches_per_epoch
+        
+        def __len__(self):
+            return self.batches_per_epoch
+        
+        def __iter__(self):
+            gen = self.generator.generate_batch()
+            for _ in range(self.batches_per_epoch):
+                yield next(gen)
+    
+    data_loader = DataLoader(generator, batches_per_epoch)
+    
+    # Ensemble de validation
+    val_generator = SpectrogramGenerator(
+        batch_size=batch_size,
+        chunk_duration=12.0,
+        musdb_path=musdb_path
+    )
+    val_generator.mus.tracks = generator.mus.tracks[:]
+    validation_batches = val_generator.generate_fixed_validation_set(n_batches=15, seed=42)
+    
+    # Modèle
+    model = UNet(n_freq_bins=513, n_time_frames=128, n_channels=64, n_layers=4).to(device)
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"\nNombre de paramètres du modèle : {total_params:,}")
+    
+    criterion = OracleMaskLoss()
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate, betas=(0.9, 0.999), weight_decay=1e-5)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-6)
+    
+    # Charger le checkpoint
+    start_epoch = 1
+    best_loss = float('inf')
+    
+    if resume_from and os.path.exists(resume_from):
+        print(f"\nChargement du checkpoint : {resume_from}")
+        start_epoch, best_loss = load_checkpoint(resume_from, model, optimizer, device)
+    elif os.path.exists(os.path.join(save_dir, 'best_model.pth')):
+        checkpoint_path = os.path.join(save_dir, 'best_model.pth')
+        print(f"\nChargement du checkpoint : {checkpoint_path}")
+        start_epoch, best_loss = load_checkpoint(checkpoint_path, model, optimizer, device)
+    
+    print(f"\nDébut de l'entraînement (Epoch {start_epoch} à {n_epochs})...")
+    print("-" * 70)
+    
+    train_losses = []
+    val_losses = []
+    
+    for epoch in range(start_epoch, n_epochs + 1):
+        # Entraînement
+        train_loss = train_epoch(model, data_loader, criterion, optimizer, device, epoch, n_epochs)
+        train_losses.append(train_loss)
+        
+        # Validation
+        if len(validation_batches) > 0:
+            val_loss = validate(model, validation_batches, criterion, device)
+        else:
+            val_loss = train_loss
+        val_losses.append(val_loss)
+        
+        # Planification du taux d'apprentissage
+        if len(val_losses) >= 3:
+            smoothed_val_loss = sum(val_losses[-3:]) / 3
+        else:
+            smoothed_val_loss = val_loss
+        scheduler.step(smoothed_val_loss)
+        current_lr = optimizer.param_groups[0]['lr']
+        
+        # Afficher les informations
+        print(f"\nEpoch {epoch}/{n_epochs} :")
+        print(f"  train_loss : {train_loss:.6f}, val_loss : {val_loss:.6f}, lr : {current_lr:.2e}")
+        
+        # Sauvegarder le meilleur modèle
+        if val_loss < best_loss:
+            best_loss = val_loss
+            checkpoint = {
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
+                'loss': val_loss,
+                'best_loss': best_loss
+            }
+            torch.save(checkpoint, os.path.join(save_dir, 'best_model.pth'))
+            print(f"  ✓ Meilleur modèle sauvegardé (loss : {val_loss:.6f})")
+        
+        print("-" * 70)
+    
+    # Sauvegarder le modèle final
+    final_checkpoint = {
+        'epoch': n_epochs,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'scheduler_state_dict': scheduler.state_dict(),
+        'loss': val_losses[-1],
+        'best_loss': best_loss
+    }
+    torch.save(final_checkpoint, os.path.join(save_dir, 'final_model.pth'))
+    
+    print("\nEntraînement terminé !")
+    print(f"Meilleur loss de validation : {best_loss:.6f}")
+    print(f"Modèle sauvegardé dans : {save_dir}")
+
+
+if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Entraîner le modèle U-Net pour la séparation de sources')
+    parser.add_argument('--epochs', type=int, default=20, help='Nombre d\'epochs d\'entraînement')
+    parser.add_argument('--batch-size', type=int, default=16, help='Taille du batch')
+    parser.add_argument('--lr', type=float, default=5e-4, help='Taux d\'apprentissage')
+    parser.add_argument('--n-songs', type=int, default=10, help='Nombre de chansons utilisées')
+    parser.add_argument('--save-dir', type=str, default='checkpoints', help='Répertoire de sauvegarde du modèle')
+    parser.add_argument('--cpu', action='store_true', help='Forcer l\'utilisation du CPU')
+    parser.add_argument('--resume', type=str, default=None, help='Reprendre l\'entraînement depuis un checkpoint')
+    parser.add_argument('--batches-per-epoch', type=int, default=50, help='Nombre de batches par epoch')
+    
+    args = parser.parse_args()
+    
+    train(
+        n_epochs=args.epochs,
+        batch_size=args.batch_size,
+        learning_rate=args.lr,
+        n_songs=args.n_songs,
+        save_dir=args.save_dir,
+        use_gpu=not args.cpu,
+        resume_from=args.resume,
+        batches_per_epoch=args.batches_per_epoch
+    )

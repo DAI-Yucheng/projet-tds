@@ -1,0 +1,118 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+conda/
+miniconda3/
+anaconda3/
+
+# PyTorch / Deep Learning
+*.pth
+*.pt
+*.ckpt
+*.h5
+*.pkl
+*.pickle
+
+# Checkpoints et modèles entraînés
+checkpoints/
+models/
+saved_models/
+*.pth
+*.pt
+
+# Dataset MUSDB (trop volumineux pour Git)
+MUSDB18/
+musdb18/
+*.mp4
+*.wav
+*.mp3
+*.flac
+*.aac
+
+# Logs et TensorBoard
+logs/
+*.log
+tensorboard/
+runs/
+
+# Fichiers audio générés
+*_vocals.wav
+*_vocals.mp3
+output_*.wav
+temp_*.wav
+
+# Images générées
+*.png
+*.jpg
+*.jpeg
+*.pdf
+!requirements.txt
+inference_result.png
+spectrogram_patches.png
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Environnement
+.env
+.env.local
+
+# Fichiers temporaires
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Fichiers de test
+test_output/
+test_results/
+
+# Documentation générée
+docs/_build/
+site/
+
+# Fichiers de configuration locaux
+config_local.py
+settings_local.py
+
