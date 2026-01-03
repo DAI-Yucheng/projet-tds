@@ -24,7 +24,7 @@ class UNet(nn.Module):
     
     def __init__(
         self,
-        n_freq_bins: int = 513,
+        n_freq_bins: int = 512,  # Modifié : 512 au lieu de 513 (puissance de 2, comme notebook)
         n_time_frames: int = 128,
         n_channels: int = 16,  # Nombre initial de canaux
         n_layers: int = 6  # Nombre de couches Encoder/Decoder 
@@ -33,7 +33,7 @@ class UNet(nn.Module):
         Initialiser U-Net
         
         Args:
-            n_freq_bins: Nombre de bins de fréquence (papier : 513)
+            n_freq_bins: Nombre de bins de fréquence (notebook : 512, au lieu de 513)
             n_time_frames: Nombre de frames temporelles (papier : 128)
             n_channels: Nombre initial de canaux 
             n_layers: Nombre de couches Encoder/Decoder 
@@ -232,7 +232,7 @@ def test_unet():
     
     # Créer le modèle
     model = UNet(
-        n_freq_bins=513,
+        n_freq_bins=512,  # Modifié : 512 au lieu de 513
         n_time_frames=128,
         n_channels=32,
         n_layers=4
@@ -248,7 +248,7 @@ def test_unet():
     
     # Tester la propagation avant
     batch_size = 4
-    x = torch.randn(batch_size, 513, 128)
+    x = torch.randn(batch_size, 512, 128)  # Modifié : 512 au lieu de 513
     
     print(f"\nShape d'entrée : {x.shape}")
     

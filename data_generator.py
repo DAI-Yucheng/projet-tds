@@ -94,8 +94,9 @@ class SpectrogramGenerator:
             else:
                 print(f"   ✗ Aucun track ne satisfait l'exigence de 12 secondes, l'entraînement peut échouer")
         
-        # Calculer le nombre de bins de fréquence (seulement la partie de fréquence positive)
-        self.n_freq_bins = self.n_fft // 2 + 1
+        # Calculer le nombre de bins de fréquence
+        # Utiliser 512 au lieu de 513 pour faciliter le traitement par le réseau (puissance de 2)
+        self.n_freq_bins = 512  # Au lieu de n_fft // 2 + 1 (513)
         
     def audio_to_spectrogram(self, audio: np.ndarray, original_sr: int = 44100) -> np.ndarray:
         """
@@ -136,11 +137,16 @@ class SpectrogramGenerator:
         # Prendre seulement la magnitude (amplitude), pas la phase
         magnitude = np.abs(stft)
         
+        # Utiliser seulement les 512 premiers bins de fréquence (au lieu de 513)
+        # Cela facilite le traitement par le réseau (puissance de 2)
+        magnitude = magnitude[:512, :]
+        
         return magnitude
     
     def extract_patches(self, spectrogram: np.ndarray) -> list:
         """
         Extraire des patches du spectrogramme (gérer le chevauchement)
+        Méthode simplifiée selon notebook : 50% de chevauchement
         
         Args:
             spectrogram: spectrogramme de magnitude, shape (freq_bins, time_frames)
@@ -150,26 +156,14 @@ class SpectrogramGenerator:
         """
         freq_bins, time_frames = spectrogram.shape
         
-        # Si le nombre de frames temporelles est insuffisant pour un patch, faire du padding
-        if time_frames < self.patch_frames:
-            padding = self.patch_frames - time_frames
-            spectrogram = np.pad(
-                spectrogram,
-                ((0, 0), (0, padding)),
-                mode='constant',
-                constant_values=0
-            )
-            time_frames = self.patch_frames
-        
         patches = []
+        # Utiliser 50% de chevauchement (stride = patch_size // 2) comme dans notebook
+        stride = self.patch_frames // 2
         
-        # Utiliser une fenêtre glissante pour extraire les patches, hop de patch_hop
-        # Cela permet de réaliser le chevauchement, augmentant le nombre d'échantillons d'entraînement
-        start_idx = 0
-        while start_idx + self.patch_frames <= time_frames:
-            patch = spectrogram[:, start_idx:start_idx + self.patch_frames]
-            patches.append(patch)
-            start_idx += self.patch_hop
+        for i in range(0, time_frames - self.patch_frames + 1, stride):
+            patch = spectrogram[:, i:i+self.patch_frames]
+            if patch.shape[1] == self.patch_frames:  # S'assurer que le patch est complet
+                patches.append(patch)
         
         return patches
     
@@ -289,46 +283,24 @@ class SpectrogramGenerator:
             y_batch = np.array(y_batch[:self.batch_size])
             
             # ============================================================
-            # Méthode Oracle Mask : calculer la cible mask dans le domaine d'amplitude linéaire
+            # Méthode simplifiée selon notebook : utiliser directement les magnitude spectrograms
             # ============================================================
-            # Clé : oracle_mask = vocals / (mix + eps), calculer dans le domaine linéaire !
-            # Ainsi, la signification physique du mask est "quelle proportion d'énergie conserver pour chaque point temps-fréquence"
-            # 
-            # Avantages :
-            # 1. Supervision directe : le modèle apprend directement à prédire le bon mask
-            # 2. Cible claire : oracle_mask est naturellement dans la plage [0, 1]
-            # 3. Éviter les problèmes de normalisation : non affecté par log/clip
+            # Pas de log normalization, pas de oracle_mask
+            # Entrée : mix magnitude (original)
+            # Sortie : vocals magnitude (original)
+            # Le modèle apprendra à prédire un mask, puis mask * mix = vocals
             # ============================================================
-            
-            eps = 1e-8
-            
-            # Calculer Oracle Mask dans le domaine d'amplitude linéaire (avant log !)
-            # oracle_mask = vocals_linear / (mix_linear + eps)
-            oracle_mask = y_batch / (x_batch + eps)
-            
-            # Clip à [0, 1] (théoriquement vocals <= mix, mais certaines situations peuvent légèrement dépasser)
-            oracle_mask = np.clip(oracle_mask, 0, 1)
             
             # Imprimer les informations de diagnostic seulement pour le premier batch
             if not hasattr(self, '_first_batch_printed'):
-                raw_zero_mix = (x_batch == 0).mean()
-                raw_zero_voc = (y_batch == 0).mean()
                 tqdm.write(f"\nInformations de diagnostic du premier batch :")
-                tqdm.write(f"  raw zero ratio - mix : {raw_zero_mix:.4f}, voc : {raw_zero_voc:.4f}")
-                tqdm.write(f"  oracle_mask stats - min : {oracle_mask.min():.4f}, max : {oracle_mask.max():.4f}, mean : {oracle_mask.mean():.4f}, std : {oracle_mask.std():.4f}")
-                if oracle_mask.std() < 0.1:
-                    tqdm.write(f"  ⚠️  Avertissement : oracle_mask std trop faible, les données peuvent avoir un problème")
-                else:
-                    tqdm.write(f"  ✓ Distribution oracle_mask normale, adaptée à l'entraînement")
+                tqdm.write(f"  mix magnitude - min : {x_batch.min():.4f}, max : {x_batch.max():.4f}, mean : {x_batch.mean():.4f}")
+                tqdm.write(f"  vocals magnitude - min : {y_batch.min():.4f}, max : {y_batch.max():.4f}, mean : {y_batch.mean():.4f}")
+                tqdm.write(f"  ✓ Utilisation directe des magnitude spectrograms (méthode notebook)")
                 self._first_batch_printed = True
             
-            # Normaliser mix (pour l'entrée du modèle) : utiliser log scale + normalisation fixe
-            x_batch_log = np.log(x_batch + eps)
-            x_batch_log = np.clip(x_batch_log, -12, 2)
-            x_batch_norm = (x_batch_log + 12) / 14  # Mapper à [0, 1]
-            
-            # Retourner : mix normalisé (entrée du modèle) et oracle_mask (cible d'entraînement)
-            yield x_batch_norm, oracle_mask
+            # Retourner directement : mix magnitude et vocals magnitude (pas de normalisation)
+            yield x_batch, y_batch
     
     def generate_fixed_validation_set(self, n_batches: int = 15, seed: int = 42) -> list:
         """
@@ -385,30 +357,30 @@ def test_generator():
     
     # Obtenir un batch
     gen = generator.generate_batch()
-    mix_batch, oracle_mask_batch = next(gen)
+    mix_batch, vocals_batch = next(gen)
     
     print(f"\nShape du batch :")
-    print(f"  mix_batch (normalisé) : {mix_batch.shape}")
-    print(f"  oracle_mask_batch : {oracle_mask_batch.shape}")
+    print(f"  mix_batch : {mix_batch.shape}")
+    print(f"  vocals_batch : {vocals_batch.shape}")
     print(f"\nPlage de données :")
     print(f"  mix : min={mix_batch.min():.4f}, max={mix_batch.max():.4f}, mean={mix_batch.mean():.4f}")
-    print(f"  oracle_mask : min={oracle_mask_batch.min():.4f}, max={oracle_mask_batch.max():.4f}, mean={oracle_mask_batch.mean():.4f}, std={oracle_mask_batch.std():.4f}")
+    print(f"  vocals : min={vocals_batch.min():.4f}, max={vocals_batch.max():.4f}, mean={vocals_batch.mean():.4f}")
     
     # Tester plusieurs batches
     print(f"\nGénération de 5 batches pour test...")
     for i in range(5):
-        mix, oracle = next(gen)
-        print(f"  Batch {i+1} : mix.shape={mix.shape}, oracle_mask.shape={oracle.shape}, oracle_mask.mean={oracle.mean():.4f}")
+        mix, vocals = next(gen)
+        print(f"  Batch {i+1} : mix.shape={mix.shape}, vocals.shape={vocals.shape}, vocals.mean={vocals.mean():.4f}")
     
     print("\n✓ Test du générateur de données réussi !")
     print("\nDescription :")
-    print("1. Utilisation des paramètres du papier : sr=8192, n_fft=1024, hop=768")
+    print("1. Utilisation des paramètres du notebook : sr=8192, n_fft=1024, hop=768")
     print("2. Longueur de patch : 128 frames")
-    print("3. Traitement du chevauchement : un patch tous les 32 frames (75% de chevauchement)")
-    print("4. Cible d'entraînement : oracle_mask = vocals / (mix + eps), calculé dans le domaine d'amplitude linéaire")
-    print("5. Plage Oracle mask : [0, 1], représente directement la proportion conservée pour chaque point temps-fréquence")
-    print("4. Shape de sortie : (batch_size, freq_bins, patch_frames)")
-    print("5. Données normalisées à la plage [0, 1]")
+    print("3. Traitement du chevauchement : 50% de chevauchement (stride = patch_size // 2)")
+    print("4. Cible d'entraînement : vocals magnitude (direct, pas de oracle_mask)")
+    print("5. Pas de log normalization : utilisation directe des magnitude spectrograms")
+    print("6. Shape de sortie : (batch_size, 512, patch_frames)")
+    print("7. Fréquence bins : 512 (au lieu de 513)")
 
 
 if __name__ == "__main__":
