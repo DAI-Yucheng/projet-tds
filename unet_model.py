@@ -2,8 +2,9 @@
 Implémentation du modèle U-Net - pour la séparation de sources
 
 Selon les exigences du papier :
-- Encoder : Conv2D + stride=2 + LeakyReLU
-- Decoder : ConvTranspose2D + skip connections (important !)
+- Encoder : Conv2D + stride=2 + Batch Normalization + LeakyReLU
+- Decoder : ConvTranspose2D + + stride=2 + Batch Normalization + ReLU + Skip connections
+- Dropout (50%) sur les 3 premières couches du decoder
 - Dernière couche : sigmoid (mask ∈ [0,1])
 - Loss : L1 loss, L = || mask ⊙ X - Y ||₁
 """
@@ -25,8 +26,8 @@ class UNet(nn.Module):
         self,
         n_freq_bins: int = 513,
         n_time_frames: int = 128,
-        n_channels: int = 32,  # Nombre initial de canaux (peut être simplifié, le papier en utilise plus)
-        n_layers: int = 4  # Nombre de couches Encoder/Decoder (peut être simplifié)
+        n_channels: int = 16,  # Nombre initial de canaux
+        n_layers: int = 6  # Nombre de couches Encoder/Decoder 
     ):
         """
         Initialiser U-Net
@@ -34,8 +35,8 @@ class UNet(nn.Module):
         Args:
             n_freq_bins: Nombre de bins de fréquence (papier : 513)
             n_time_frames: Nombre de frames temporelles (papier : 128)
-            n_channels: Nombre initial de canaux (version simplifiée, le papier en utilise plus)
-            n_layers: Nombre de couches Encoder/Decoder (version simplifiée)
+            n_channels: Nombre initial de canaux 
+            n_layers: Nombre de couches Encoder/Decoder 
         """
         super(UNet, self).__init__()
         
@@ -59,6 +60,7 @@ class UNet(nn.Module):
                         stride=(2, 2),
                         padding=(2, 2)
                     ),
+                    nn.BatchNorm2d(out_channels),
                     nn.LeakyReLU(0.2, inplace=True)
                 )
             )
@@ -108,14 +110,23 @@ class UNet(nn.Module):
                 nn.init.xavier_uniform_(conv_transpose.weight, gain=0.1)
                 if conv_transpose.bias is not None:
                     nn.init.constant_(conv_transpose.bias, -0.4)
+                # Pas de BatchNorm pour la couche de sortie
+                self.decoder.append(nn.Sequential(conv_transpose, activation))
             else:
-                # Couches intermédiaires : utiliser LeakyReLU, initialisation He
-                activation = nn.LeakyReLU(0.2, inplace=True)
-                nn.init.kaiming_normal_(conv_transpose.weight, mode='fan_out', nonlinearity='leaky_relu', a=0.2)
+                # Couches intermédiaires : utiliser ReLU + BatchNorm, initialisation He
+                batch_norm = nn.BatchNorm2d(out_ch)
+                activation = nn.ReLU(inplace=True)
+                nn.init.kaiming_normal_(conv_transpose.weight, mode='fan_out', nonlinearity='relu')
                 if conv_transpose.bias is not None:
                     nn.init.constant_(conv_transpose.bias, 0)
-            
-            self.decoder.append(nn.Sequential(conv_transpose, activation))
+                
+                # Ajouter Dropout (50%) sur les 3 premières couches du decoder
+                # Les 3 premières couches correspondent aux layer_idx les plus élevés
+                if layer_idx >= n_layers - 3:
+                    dropout = nn.Dropout(0.5)
+                    self.decoder.append(nn.Sequential(conv_transpose, batch_norm, activation, dropout))
+                else:
+                    self.decoder.append(nn.Sequential(conv_transpose, batch_norm, activation))
         
         # Initialiser les autres couches (encoder et couches intermédiaires du decoder)
         self._initialize_weights()
@@ -154,7 +165,7 @@ class UNet(nn.Module):
                 # La couche i du decoder (index enumerate) correspond à la couche (n_layers-1-i) de l'encoder
                 # Parce que le decoder va de la couche la plus basse à la plus haute, tandis que skip_connections va de la plus haute à la plus basse
                 skip_idx = len(skip_connections) - 1 - i
-                skip = skip_connections[skip_idx]
+                skip = skip_connections[skip_idx] # features de l'encoder 
                 
                 # Assurer que les dimensions spatiales correspondent (peut nécessiter un recadrage)
                 if x.shape[2] != skip.shape[2] or x.shape[3] != skip.shape[3]:
@@ -180,7 +191,7 @@ class UNet(nn.Module):
                 )
             
             # Appeler la couche decoder
-            x = decoder_layer(x)
+            x = decoder_layer(x) # c'est ici que le upsampling se fait quand i=0 
         
         # Supprimer la dimension channel : (batch, 1, freq, time) -> (batch, freq, time)
         x = x.squeeze(1)

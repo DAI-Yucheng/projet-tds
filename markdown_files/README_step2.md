@@ -44,16 +44,20 @@ Entrée: (batch, 513, 128) - spectrogramme magnitude du mix
 Ajout dimension canal: (batch, 1, 513, 128)
     ↓
 Encoder (sous-échantillonnage):
-  Conv2D + LeakyReLU + stride=2  (1 → 32 canaux)
-  Conv2D + LeakyReLU + stride=2  (32 → 64 canaux)
-  Conv2D + LeakyReLU + stride=2  (64 → 128 canaux)
-  Conv2D + LeakyReLU + stride=2  (128 → 256 canaux)
+  Conv2D + kernel_size =(5,5) + stride=2 + Batch Normalization + LeakyReLU   (1 → 16 canaux)
+  Conv2D + kernel_size =(5,5) + stride=2 + Batch Normalization + LeakyReLU   (16 → 32 canaux)
+  Conv2D + kernel_size =(5,5) + stride=2 + Batch Normalization + LeakyReLU   (32 → 64 canaux)
+  Conv2D + kernel_size =(5,5) + stride=2 + Batch Normalization + LeakyReLU   (64 → 128 canaux)
+  Conv2D + kernel_size =(5,5) + stride=2 + Batch Normalization + LeakyReLU   (128 → 256 canaux)
+  Conv2D + kernel_size =(5,5) + stride=2 + Batch Normalization + LeakyReLU   (256 → 512 canaux)
     ↓
 Decoder (sur-échantillonnage) + Skip Connections:
-  ConvTranspose2D + LeakyReLU  (256 → 128) + skip(128)
-  ConvTranspose2D + LeakyReLU  (256 → 64) + skip(64)
-  ConvTranspose2D + LeakyReLU  (128 → 32) + skip(32)
-  ConvTranspose2D + Sigmoid    (64 → 1)
+  ConvTranspose2D + kernel_size =(5,5) + stride=2 + Batch Normalization + plainReLU  (512 → 256) + skip(256)
+  ConvTranspose2D + kernel_size =(5,5) + stride=2 + Batch Normalization + plainReLU  (512 → 128) + skip(128)
+  ConvTranspose2D + kernel_size =(5,5) + stride=2 + Batch Normalization + plainReLU  (256 → 64) + skip(64)
+  ConvTranspose2D + kernel_size =(5,5) + stride=2 + Batch Normalization + plainReLU  (128 → 32) + skip(32)
+  ConvTranspose2D + kernel_size =(5,5) + stride=2 + Batch Normalization + plainReLU  (64 → 16) + skip(16)
+  ConvTranspose2D + Sigmoid    (32 → 1)
     ↓
 Suppression dimension canal: (batch, 513, 128)
     ↓
