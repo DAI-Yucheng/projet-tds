@@ -1,218 +1,218 @@
-# 第二步：U-Net模型实现
+# Deuxième Étape : Implémentation du Modèle U-Net
 
-## 概述
+## Vue d'ensemble
 
-实现一个简化但正确的U-Net模型用于声源分离，完全按照TP要求。
+Implémentation d'un modèle U-Net simplifié mais correct pour la séparation de sources, conforme aux exigences du TP.
 
-## TP要求
+## Exigences du TP
 
-### 必须包含的结构
+### Structures Obligatoires
 
-1. **Encoder（编码器）**
+1. **Encoder (encodeur)**
    - Conv2D
-   - stride = 2（下采样）
-   - LeakyReLU激活函数
+   - stride = 2 (sous-échantillonnage)
+   - Fonction d'activation LeakyReLU
 
-2. **Decoder（解码器）**
-   - ConvTranspose2D（上采样）
-   - **Skip connections（重点！）** - 连接encoder和decoder对应层
+2. **Decoder (décodeur)**
+   - ConvTranspose2D (sur-échantillonnage)
+   - **Skip connections (point important !)** - connecter les couches correspondantes de l'encoder et du decoder
 
-3. **最后一层**
-   - Sigmoid激活函数
-   - 输出mask ∈ [0, 1]
+3. **Dernière couche**
+   - Activation Sigmoid
+   - Sortie mask ∈ [0, 1]
 
-4. **Loss函数**
-   - L1 Loss（不是MSE）
-   - 公式: `L = || mask ⊙ X - Y ||₁`
-   - 其中：
-     - `mask`: 模型预测的mask
-     - `X`: mix的magnitude spectrogram
-     - `Y`: 真实的vocals magnitude spectrogram
-     - `⊙`: 逐元素相乘
+4. **Fonction de perte**
+   - L1 Loss (pas MSE)
+   - Formule: `L = || mask ⊙ X - Y ||₁`
+   - Où :
+     - `mask`: masque prédit par le modèle
+     - `X`: spectrogramme magnitude du mix
+     - `Y`: spectrogramme magnitude réel des vocals
+     - `⊙`: multiplication élément par élément
 
-### 可以简化的地方
+### Simplifications Possibles
 
-1. ✅ **不用训练两个模型** - 只做vocals分离（不做instruments）
-2. ✅ **不用完全一样的通道数** - 可以使用更少的通道（如32而不是论文的更多）
-3. ✅ **可以简化层数** - 4层就够（论文可能更多）
+1. ✅ **Pas besoin d'entraîner deux modèles** - seulement la séparation des vocals (pas les instruments)
+2. ✅ **Nombre de canaux différent** - peut utiliser moins de canaux (par exemple 32 au lieu de plus dans l'article)
+3. ✅ **Simplification du nombre de couches** - 4 couches suffisent (l'article peut en avoir plus)
 
-## 模型架构
+## Architecture du Modèle
 
 ```
-输入: (batch, 513, 128) - mix的magnitude spectrogram
+Entrée: (batch, 513, 128) - spectrogramme magnitude du mix
     ↓
-添加channel维度: (batch, 1, 513, 128)
+Ajout dimension canal: (batch, 1, 513, 128)
     ↓
-Encoder (下采样):
-  Conv2D + LeakyReLU + stride=2  (1 → 32 channels)
-  Conv2D + LeakyReLU + stride=2  (32 → 64 channels)
-  Conv2D + LeakyReLU + stride=2  (64 → 128 channels)
-  Conv2D + LeakyReLU + stride=2  (128 → 256 channels)
+Encoder (sous-échantillonnage):
+  Conv2D + LeakyReLU + stride=2  (1 → 32 canaux)
+  Conv2D + LeakyReLU + stride=2  (32 → 64 canaux)
+  Conv2D + LeakyReLU + stride=2  (64 → 128 canaux)
+  Conv2D + LeakyReLU + stride=2  (128 → 256 canaux)
     ↓
-Decoder (上采样) + Skip Connections:
+Decoder (sur-échantillonnage) + Skip Connections:
   ConvTranspose2D + LeakyReLU  (256 → 128) + skip(128)
   ConvTranspose2D + LeakyReLU  (256 → 64) + skip(64)
   ConvTranspose2D + LeakyReLU  (128 → 32) + skip(32)
   ConvTranspose2D + Sigmoid    (64 → 1)
     ↓
-移除channel维度: (batch, 513, 128)
+Suppression dimension canal: (batch, 513, 128)
     ↓
-输出: mask ∈ [0, 1]
+Sortie: mask ∈ [0, 1]
     ↓
 estimated_vocals = mask ⊙ mix
 ```
 
-## 文件说明
+## Description des Fichiers
 
 ### `unet_model.py`
-- **UNet类**: 模型定义
-- **test_unet()**: 测试函数，验证模型结构
+- **Classe UNet**: définition du modèle
+- **test_unet()**: fonction de test pour vérifier la structure du modèle
 
 ### `train.py`
-- **训练脚本**: 完整的训练流程
-- **L1Loss类**: 实现论文的L1 loss
-- **train()函数**: 主训练函数
+- **Script d'entraînement**: processus d'entraînement complet
+- **Classe L1Loss**: implémentation de la perte L1 de l'article
+- **Fonction train()**: fonction principale d'entraînement
 
 ### `inference.py`
-- **推理脚本**: 使用训练好的模型进行预测
-- **可视化功能**: 显示mix、mask和estimated vocals
+- **Script d'inférence**: utilise le modèle entraîné pour faire des prédictions
+- **Fonction de visualisation**: affiche mix, mask et estimated vocals
 
-## 使用方法
+## Méthode d'Utilisation
 
-### 1. 测试模型结构
+### 1. Test de la Structure du Modèle
 
 ```bash
 python unet_model.py
 ```
 
-这会验证：
-- 模型输入输出shape
-- Mask值域在[0, 1]
-- Skip connections正常工作
+Cela vérifie :
+- Nombre de paramètres du modèle
+- Shape d'entrée/sortie
+- Valeurs du mask dans [0, 1]
 
-### 2. 训练模型
+### 2. Entraîner le Modèle
 
 ```bash
-# 基本训练（使用默认参数）
+# Entraînement basique (avec paramètres par défaut)
 python train.py
 
-# 自定义参数
+# Paramètres personnalisés
 python train.py --epochs 20 --batch-size 16 --lr 1e-3 --n-songs 10
 
-# 使用CPU（如果没有GPU）
+# Utiliser le CPU (si pas de GPU)
 python train.py --cpu
 ```
 
-**训练参数说明**:
-- `--epochs`: 训练轮数（建议10-20，目标是收敛）
-- `--batch-size`: Batch大小（建议8-16）
-- `--lr`: 学习率（建议1e-3到1e-4）
-- `--n-songs`: 使用的歌曲数量（建议5-10首，快速测试）
-- `--save-dir`: 模型保存目录（默认: checkpoints）
+**Explication des paramètres d'entraînement** :
+- `--epochs`: Nombre d'époques d'entraînement (recommandé 10-20, objectif : convergence)
+- `--batch-size`: Taille du batch (recommandé 8-16)
+- `--lr`: Taux d'apprentissage (recommandé 1e-3 à 1e-4)
+- `--n-songs`: Nombre de chansons utilisées (recommandé 5-10 chansons, pour test rapide)
+- `--save-dir`: Répertoire de sauvegarde du modèle (par défaut : checkpoints)
 
-### 3. 查看训练进度
+### 3. Visualiser la Progression de l'Entraînement
 
 ```bash
-# 启动TensorBoard
+# Lancer TensorBoard
 tensorboard --logdir checkpoints/logs
 
-# 然后在浏览器打开 http://localhost:6006
+# Puis ouvrir dans le navigateur http://localhost:6006
 ```
 
-### 4. 使用模型推理
+### 4. Utiliser le Modèle pour l'Inférence
 
 ```bash
 python inference.py
 ```
 
-## 训练建议（TP要求）
+## Recommandations pour l'Entraînement (Exigences du TP)
 
-根据TP的指导：
+Selon les directives du TP :
 
-1. **数据量**: 选择5-10首歌曲（不是全部MUSDB）
-2. **训练轮数**: 10-20 epochs
-3. **Batch size**: 小一点（8-16）
-4. **目标**: **收敛**（不是追求性能）
-   - Loss曲线应该下降
-   - 不应该发散
+1. **Quantité de données**: Choisir 5-10 chansons (pas tout MUSDB)
+2. **Nombre d'époques**: 10-20 epochs
+3. **Taille du batch**: Petit (8-16)
+4. **Objectif**: **Convergence** (pas la recherche de performance)
+   - La courbe de perte doit descendre
+   - Ne doit pas diverger
 
-## 输出文件
+## Fichiers de Sortie
 
-训练后会生成：
+Après l'entraînement, les fichiers suivants seront générés :
 
 ```
 checkpoints/
-├── best_model.pth          # 最佳模型（验证loss最低）
-├── final_model.pth         # 最终模型
-├── checkpoint_epoch_5.pth   # 每5个epoch的checkpoint
+├── best_model.pth          # Meilleur modèle (perte de validation la plus faible)
+├── final_model.pth         # Modèle final
+├── checkpoint_epoch_5.pth   # Checkpoint tous les 5 epochs
 ├── checkpoint_epoch_10.pth
-└── logs/                   # TensorBoard日志
+└── logs/                   # Logs TensorBoard
     └── YYYYMMDD_HHMMSS/
 ```
 
-## 关键点
+## Points Clés
 
-### 1. Skip Connections（重点！）
+### 1. Skip Connections (Point Important !)
 
-这是U-Net的核心特性，必须实现：
+C'est la caractéristique centrale du U-Net, elle doit être implémentée :
 
 ```python
-# Encoder保存特征图
+# L'encoder sauvegarde les cartes de caractéristiques
 skip_connections.append(encoder_output)
 
-# Decoder连接对应层的特征
+# Le decoder connecte les couches correspondantes
 decoder_input = torch.cat([decoder_output, skip_connection], dim=1)
 ```
 
-### 2. L1 Loss（不是MSE）
+### 2. L1 Loss (Pas MSE)
 
-论文明确要求使用L1 loss：
+L'article exige explicitement l'utilisation de la perte L1 :
 
 ```python
 estimated_vocals = mask * mix_spec
 loss = L1Loss(estimated_vocals, vocals_spec)
 ```
 
-### 3. Mask值域
+### 3. Domaine de Valeurs du Mask
 
-最后一层必须是Sigmoid，确保mask在[0, 1]：
+La dernière couche doit être Sigmoid pour assurer que le mask soit dans [0, 1] :
 
 ```python
-nn.Sigmoid()  # 最后一层
+nn.Sigmoid()  # Dernière couche
 ```
 
-## 报告中的表述
+## Expression dans le Rapport
 
-可以在报告中这样写：
+Vous pouvez écrire dans le rapport :
 
 > "Nous implémentons une version simplifiée du U-Net proposée dans l'article, tout en conservant les principes essentiels (skip connections, masque spectral). Le modèle utilise un encodeur avec des couches Conv2D (stride=2) et LeakyReLU, et un décodeur avec des couches ConvTranspose2D et des connexions de saut. La fonction de perte utilisée est la perte L1: L = || mask ⊙ X - Y ||₁, comme spécifié dans l'article."
 
-## 常见问题
+## Problèmes Fréquents
 
-### Q: 训练loss不下降？
+### Q: La perte d'entraînement ne descend pas ?
 
-A: 
-- 检查学习率（尝试1e-4）
-- 检查数据是否正确归一化
-- 检查模型是否太小（增加n_channels）
+R: 
+- Vérifier le taux d'apprentissage (essayer 1e-4)
+- Vérifier que les données sont correctement normalisées
+- Vérifier si le modèle est trop petit (augmenter n_channels)
 
-### Q: 内存不足？
+### Q: Mémoire insuffisante ?
 
-A:
-- 减小batch_size
-- 减小n_channels或n_layers
+R:
+- Réduire batch_size
+- Réduire n_channels ou n_layers
 
-### Q: 如何知道模型收敛了？
+### Q: Comment savoir si le modèle a convergé ?
 
-A:
-- Loss曲线应该下降
-- 不应该发散（loss越来越大）
-- 验证loss也应该下降
+R:
+- La courbe de perte doit descendre
+- Ne doit pas diverger (perte qui augmente)
+- La perte de validation doit aussi descendre
 
-## 下一步
+## Étape Suivante
 
-完成这一步后，可以：
-1. 验证模型能正常训练和收敛
-2. 查看TensorBoard的loss曲线
-3. 进入第三步：音频重建
+Après avoir complété cette étape, vous pouvez :
+1. Vérifier que le modèle peut s'entraîner et converger normalement
+2. Consulter la courbe de perte dans TensorBoard
+3. Passer à la troisième étape : reconstruction audio
 

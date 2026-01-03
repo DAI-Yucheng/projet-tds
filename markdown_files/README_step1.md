@@ -1,140 +1,141 @@
-# 第一步：数据管道实现
+# Première Étape : Implémentation du Pipeline de Données
 
-## 概述
+## Vue d'ensemble
 
-这一步实现了从MUSDB数据集生成spectrogram patches的数据管道，完全按照论文参数配置。
+Cette étape implémente le pipeline de données pour générer des patches de spectrogrammes à partir du dataset MUSDB, en suivant strictement les paramètres de l'article.
 
-## 论文参数
+## Paramètres de l'Article
 
-- **采样率**: 8192 Hz
-- **STFT窗口**: 1024
-- **STFT hop**: 768
-- **Patch长度**: 128帧
-- **输入shape**: (freq_bins, 128) ≈ (513, 128)
+- **Taux d'échantillonnage**: 8192 Hz
+- **Fenêtre STFT**: 1024
+- **Hop STFT**: 768
+- **Longueur de patch**: 128 trames
+- **Shape d'entrée**: (freq_bins, 128) ≈ (513, 128)
 
-## 关键实现点
+## Points Clés d'Implémentation
 
-### 1. Overlap处理（TP要求回答的问题）
+### 1. Traitement du Recouvrement (Question requise par le TP)
 
-**问题**: "on observe un fort taux de recouvrement entre deux spectrogrammes de 128 trames"
+**Question**: "on observe un fort taux de recouvrement entre deux spectrogrammes de 128 trames"
 
-**解决方案**: 使用sliding window with overlap（滑窗重叠）
+**Solution**: Utilisation d'une fenêtre glissante avec recouvrement
 
-- **实现方式**: 每32帧取一个patch（而不是每128帧）
-- **重叠率**: (128-32)/128 = 75%
-- **优势**: 
-  - 增加训练样本数量（约4倍）
-  - 保持时间连续性
-  - 提高模型对边界区域的预测能力
+- **Méthode d'implémentation**: Prendre un patch tous les 32 trames (au lieu de tous les 128 trames)
+- **Taux de recouvrement**: (128-32)/128 = 75%
+- **Avantages**: 
+  - Augmenter le nombre d'exemples d'entraînement (environ 4 fois)
+  - Maintenir la continuité temporelle
+  - Améliorer la capacité de prédiction du modèle dans les zones frontières
 
-**报告中的表述**:
+**Expression dans le rapport**:
 > "Nous utilisons une fenêtre glissante avec recouvrement afin d'augmenter le nombre d'exemples d'apprentissage tout en conservant la continuité temporelle."
 
-### 2. 数据预处理
+### 2. Prétraitement des Données
 
-- **STFT**: 使用librosa的STFT，参数严格按照论文
-- **只取magnitude**: 忽略phase，phase在重建时使用mix的phase
-- **归一化**: 
-  - 先取log scale（log(x + eps)）
-  - 再min-max归一化到[0, 1]
+- **STFT**: Utilise la STFT de librosa, avec des paramètres strictement conformes à l'article
+- **Magnitude uniquement**: Ignore la phase, qui sera celle du mix lors de la reconstruction
+- **Normalisation**: 
+  - D'abord échelle logarithmique (log(x + eps))
+  - Puis normalisation min-max vers [0, 1]
 
-### 3. 生成器设计
+### 3. Conception du Générateur
 
-- **无限循环**: `while True`，可以持续生成数据
-- **随机采样**: 每次随机选择歌曲和chunk位置
-- **Batch组织**: 自动收集patches组成batch
+- **Boucle infinie**: `while True`, peut générer des données en continu
+- **Échantillonnage aléatoire**: Sélection aléatoire de la chanson et de la position du chunk à chaque fois
+- **Organisation en batches**: Collecte automatiquement des patches pour former un batch
 
-## 使用方法
+## Méthode d'Utilisation
 
-### 安装系统依赖（重要！）
+### Installation des Dépendances Système (Important !)
 
-**musdb需要ffmpeg来处理音频文件，必须先安装：**
+**musdb nécessite ffmpeg pour traiter les fichiers audio, il faut l'installer en premier :**
 
-在Ubuntu/WSL中：
+Dans Ubuntu/WSL :
 ```bash
 sudo apt-get update
 sudo apt-get install -y ffmpeg
 ```
 
-验证安装：
+Vérification de l'installation :
 ```bash
 ffmpeg -version
 ```
 
-### 安装Python依赖
+### Installation des Dépendances Python
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 运行测试
+### Exécution du Test
 
 ```bash
 python data_generator.py
 ```
 
-### 在训练中使用
+### Utilisation dans l'Entraînement
 
 ```python
 from data_generator import SpectrogramGenerator
 
-# 创建生成器
+# Créer le générateur
 generator = SpectrogramGenerator(
     batch_size=16,
     chunk_duration=5.0
 )
 
-# 获取数据
+# Obtenir les données
 gen = generator.generate_batch()
 for epoch in range(num_epochs):
     for batch_idx in range(batches_per_epoch):
         x_batch, y_batch = next(gen)
-        # x_batch: (batch_size, 513, 128) - mix的spectrogram
-        # y_batch: (batch_size, 513, 128) - vocals的spectrogram
+        # x_batch: (batch_size, 513, 128) - spectrogramme du mix
+        # y_batch: (batch_size, 513, 128) - spectrogramme des vocals
         
-        # 训练模型...
+        # Entraîner le modèle...
 ```
 
-## 输出格式
+## Format de Sortie
 
-- **x_batch**: mix的magnitude spectrogram patches
+- **x_batch**: patches de spectrogramme magnitude du mix
   - Shape: `(batch_size, freq_bins, patch_frames)`
-  - 例如: `(16, 513, 128)`
-  - 数值范围: [0, 1]（已归一化）
+  - Exemple: `(16, 513, 128)`
+  - Plage de valeurs: [0, 1] (normalisé)
 
-- **y_batch**: vocals的magnitude spectrogram patches
+- **y_batch**: patches de spectrogramme magnitude des vocals
   - Shape: `(batch_size, freq_bins, patch_frames)`
-  - 例如: `(16, 513, 128)`
-  - 数值范围: [0, 1]（已归一化）
+  - Exemple: `(16, 513, 128)`
+  - Plage de valeurs: [0, 1] (normalisé)
 
-## 注意事项
+## Points d'Attention
 
-1. **系统依赖**: 必须先安装ffmpeg（见上面的安装步骤）
-2. **首次运行**: 如果MUSDB未下载，会自动下载（约4.5GB）
-3. **内存**: 如果内存不足，可以减小`batch_size`或`chunk_duration`
-4. **采样率**: MUSDB原始采样率是44100Hz，代码会自动重采样到8192Hz
-5. **立体声处理**: 自动转换为单声道（取平均）
+1. **Dépendances système**: Il faut d'abord installer ffmpeg (voir les étapes d'installation ci-dessus)
+2. **Première exécution**: Si MUSDB n'est pas téléchargé, il se téléchargera automatiquement (environ 4.5GB)
+3. **Mémoire**: Si la mémoire est insuffisante, réduire `batch_size` ou `chunk_duration`
+4. **Taux d'échantillonnage**: Le taux d'échantillonnage original de MUSDB est 44100Hz, le code rééchantillonne automatiquement à 8192Hz
+5. **Traitement stéréo**: Conversion automatique en mono (moyenne)
 
-## 常见问题
+## Problèmes Fréquents
 
-### 错误: "ffmpeg or ffprobe could not be found"
+### Erreur: "ffmpeg or ffprobe could not be found"
 
-**原因**: 系统缺少ffmpeg，这是musdb的必需依赖。
+**Cause**: Le système manque de ffmpeg, qui est une dépendance nécessaire de musdb.
 
-**解决方法**:
+**Solution**:
 ```bash
 # Ubuntu/WSL
 sudo apt-get update
 sudo apt-get install -y ffmpeg
 
-# 验证
+# Vérification
 ffmpeg -version
 ```
 
-## 下一步
+## Étape Suivante
 
-完成这一步后，可以：
-1. 验证数据形状和数值范围是否正确
-2. 可视化几个spectrogram patches，检查数据质量
-3. 进入第二步：实现U-Net模型
+Après avoir complété cette étape, vous pouvez :
+1. Vérifier que la forme et la plage de valeurs des données sont correctes
+2. Visualiser quelques patches de spectrogrammes pour vérifier la qualité des données
+3. Passer à la deuxième étape : implémentation du modèle U-Net
+
 

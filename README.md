@@ -179,7 +179,13 @@ Fichier audio vocal extrait
 
 ## 📦 Installation
 
-### 1. Dépendances système
+### 1. Créer l'environement 
+```
+conda create -n SON python=3.12 -y
+conda activate SON 
+```
+
+### 2. Dépendances système
 
 **Important** : `musdb` nécessite `ffmpeg` pour traiter les fichiers audio.
 
@@ -188,11 +194,15 @@ Fichier audio vocal extrait
 sudo apt-get update
 sudo apt-get install -y ffmpeg
 
+# Conda env
+conda install conda-forge::musdb -y 
+conda install conda-forge::ffmpeg -y
+
 # Vérifier l'installation
 ffmpeg -version
 ```
 
-### 2. Dépendances Python
+### 3. Dépendances Python
 
 ```bash
 # Installer PyTorch (avec CUDA si vous avez un GPU)
