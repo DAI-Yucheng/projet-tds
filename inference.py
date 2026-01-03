@@ -33,8 +33,9 @@ def load_model(checkpoint_path, device='cpu', n_channels=64):
         model: Modèle chargé
     """
     # Créer le modèle (doit correspondre à la configuration d'entraînement)
+    # 注意：现在使用512频率bins（不是513），与新的训练方法一致
     model = UNet(
-        n_freq_bins=513,
+        n_freq_bins=512,  # 修改：512 au lieu de 513
         n_time_frames=128,
         n_channels=n_channels,  # Utiliser le nombre de canaux de l'entraînement
         n_layers=4
@@ -53,13 +54,14 @@ def load_model(checkpoint_path, device='cpu', n_channels=64):
     return model
 
 
-def audio_to_spectrogram(audio, sample_rate=8192, n_fft=1024, hop_length=768):
+def audio_to_spectrogram(audio, original_sr=None, sample_rate=8192, n_fft=1024, hop_length=768):
     """
     Convertir l'audio en spectrogramme de magnitude (identique à l'entraînement)
     
     Args:
         audio: Tableau audio
-        sample_rate: Taux d'échantillonnage (utilisé 8192 pendant l'entraînement)
+        original_sr: Taux d'échantillonnage original de l'audio (si None, assume déjà à sample_rate)
+        sample_rate: Taux d'échantillonnage cible (utilisé 8192 pendant l'entraînement)
         n_fft: Taille de la fenêtre STFT (utilisé 1024 pendant l'entraînement)
         hop_length: Longueur du hop STFT (utilisé 768 pendant l'entraînement)
         
@@ -73,7 +75,11 @@ def audio_to_spectrogram(audio, sample_rate=8192, n_fft=1024, hop_length=768):
     
     # Rééchantillonnage au taux d'échantillonnage cible (si nécessaire)
     if len(audio) == 0:
-        return np.zeros((n_fft // 2 + 1, 1)), np.zeros((n_fft // 2 + 1, 1))
+        return np.zeros((512, 1)), np.zeros((512, 1))
+    
+    # 重要：先resample到8192Hz（如果原始采样率不同）
+    if original_sr is not None and original_sr != sample_rate:
+        audio = librosa.resample(audio, orig_sr=original_sr, target_sr=sample_rate)
     
     # Exécuter STFT
     stft = librosa.stft(
@@ -88,6 +94,11 @@ def audio_to_spectrogram(audio, sample_rate=8192, n_fft=1024, hop_length=768):
     magnitude = np.abs(stft)
     phase = np.angle(stft)
     
+    # Utiliser seulement les 512 premiers bins de fréquence (au lieu de 513)
+    # 与训练时的data_generator一致
+    magnitude = magnitude[:512, :]
+    phase = phase[:512, :]
+    
     return magnitude, phase
 
 
@@ -95,57 +106,76 @@ def normalize_spectrogram(spec):
     """
     Normaliser le spectrogramme (identique à l'entraînement)
     
+    注意：根据新的训练方法，不再使用log normalization
+    直接返回原始magnitude（与data_generator一致）
+    
     Args:
         spec: Spectrogramme de magnitude
         
     Returns:
-        normalized_spec: Spectrogramme normalisé [0, 1]
+        spec: Spectrogramme de magnitude（不归一化，直接使用）
     """
-    eps = 1e-8
-    spec_log = np.log(spec + eps)
-    spec_log = np.clip(spec_log, -12, 2)
-    spec_norm = (spec_log + 12) / 14
-    return spec_norm
-
-
-def denormalize_spectrogram(spec_norm):
-    """
-    Dénormaliser le spectrogramme (restaurer l'échelle originale)
-    
-    Args:
-        spec_norm: Spectrogramme normalisé [0, 1]
-        
-    Returns:
-        spec: Spectrogramme de magnitude dénormalisé
-    """
-    # Opération inverse : restaurer de [0,1] à l'échelle log
-    spec_log = spec_norm * 14 - 12  # Mappage linéaire inverse
-    spec = np.exp(spec_log) - 1e-8  # Inverse du log
-    spec = np.maximum(spec, 0)  # Assurer la non-négativité
+    # 新方法：不使用log normalization，直接使用原始magnitude
     return spec
 
 
-def spectrogram_to_audio(magnitude, phase, hop_length=768):
+def denormalize_spectrogram(spec):
+    """
+    Dénormaliser le spectrogramme
+    
+    注意：由于不再使用normalization，这个函数只是返回原始值
+    
+    Args:
+        spec: Spectrogramme de magnitude
+        
+    Returns:
+        spec: Spectrogramme de magnitude（不变）
+    """
+    # 新方法：不需要denormalization，直接返回
+    return spec
+
+
+def spectrogram_to_audio(magnitude, phase, hop_length=768, n_fft=1024):
     """
     Reconstruire l'audio à partir de magnitude et phase (ISTFT)
     
     Args:
-        magnitude: Spectrogramme de magnitude
-        phase: Spectrogramme de phase
+        magnitude: Spectrogramme de magnitude (512频率bins)
+        phase: Spectrogramme de phase (512频率bins)
         hop_length: Longueur du hop STFT
+        n_fft: Taille de la fenêtre STFT (用于重建完整频谱)
         
     Returns:
         audio: Tableau audio reconstruit
     """
+    # 重要：我们需要重建完整的STFT（513频率bins）
+    # 因为我们只取了前512个bins，需要补全到513（n_fft//2+1）
+    full_freq_bins = n_fft // 2 + 1  # 513
+    
+    # 如果magnitude只有512个bins，需要补全
+    if magnitude.shape[0] == 512:
+        # 创建完整的STFT，前512个bins用我们的数据，最后一个bin（Nyquist）设为0
+        full_magnitude = np.zeros((full_freq_bins, magnitude.shape[1]), dtype=magnitude.dtype)
+        full_phase = np.zeros((full_freq_bins, phase.shape[1]), dtype=phase.dtype)
+        
+        full_magnitude[:512, :] = magnitude
+        full_phase[:512, :] = phase
+        # Nyquist频率（最后一个bin）的phase设为0
+        full_phase[-1, :] = 0
+    else:
+        full_magnitude = magnitude
+        full_phase = phase
+    
     # Reconstruire le spectrogramme complexe
-    stft = magnitude * np.exp(1j * phase)
+    stft = full_magnitude * np.exp(1j * full_phase)
     
     # ISTFT pour reconstruire l'audio
     audio = librosa.istft(
         stft,
         hop_length=hop_length,
         window='hann',
-        center=True
+        center=True,
+        length=None  # 让librosa自动计算长度
     )
     
     return audio
@@ -205,88 +235,105 @@ def separate_vocals(audio_path, model, device='cpu', output_path=None):
     """
     print(f"\nTraitement du fichier audio : {audio_path}")
     
-    # 1. Charger l'audio
-    audio, sr = librosa.load(audio_path, sr=None, mono=False)
-    print(f"  Taux d'échantillonnage original : {sr} Hz")
-    print(f"  Longueur de l'audio : {len(audio[0] if len(audio.shape) > 1 else audio) / sr:.2f} secondes")
+    # 1. Charger l'audio（保持原始采样率）
+    audio, original_sr = librosa.load(audio_path, sr=None, mono=False)
+    print(f"  Taux d'échantillonnage original : {original_sr} Hz")
+    original_length = len(audio[0] if len(audio.shape) > 1 else audio) / original_sr
+    print(f"  Longueur de l'audio : {original_length:.2f} secondes")
     
-    # 2. Convertir en spectrogramme
+    # 2. Convertir en spectrogramme（resample到8192Hz）
     print("  Conversion en spectrogramme...")
-    magnitude, phase = audio_to_spectrogram(audio, sample_rate=8192, n_fft=1024, hop_length=768)
+    magnitude, phase = audio_to_spectrogram(
+        audio, 
+        original_sr=original_sr,  # 传入原始采样率
+        sample_rate=8192, 
+        n_fft=1024, 
+        hop_length=768
+    )
     print(f"  Shape du spectrogramme : {magnitude.shape}")
     
-    # 3. Normaliser (identique à l'entraînement)
-    print("  Normalisation...")
-    mix_spec_norm = normalize_spectrogram(magnitude)
+    # 3. 注意：新方法不使用normalization，直接使用原始magnitude
+    # 与训练时的data_generator一致
+    mix_spec = magnitude  # 直接使用，不归一化
     
     # 4. Traiter les longs audios : traitement par blocs (si plus de 128 frames)
     patch_frames = 128
-    hop_frames = 32  # 75% de chevauchement
+    hop_frames = patch_frames // 2  # 50% de chevauchement (与训练一致)
     
     if magnitude.shape[1] <= patch_frames:
         # Audio court, traitement direct
-        mask = predict_mask(model, mix_spec_norm, device)
-        estimated_vocals_magnitude_norm = mask * mix_spec_norm
+        mask = predict_mask(model, mix_spec, device)
+        estimated_vocals_magnitude = mask * mix_spec  # mask * mix = vocals
     else:
         # Audio long, traitement par blocs
-        print(f"  Audio long, traitement par blocs (patch_frames={patch_frames}, chevauchement=75%)...")
-        estimated_vocals_magnitude_norm = np.zeros_like(mix_spec_norm)
-        weight = np.zeros_like(mix_spec_norm)
+        print(f"  Audio long, traitement par blocs (patch_frames={patch_frames}, chevauchement=50%)...")
+        estimated_vocals_magnitude = np.zeros_like(mix_spec)
+        weight = np.zeros_like(mix_spec)
         
         for start in range(0, magnitude.shape[1] - patch_frames + 1, hop_frames):
             end = start + patch_frames
-            patch = mix_spec_norm[:, start:end]
+            patch = mix_spec[:, start:end]
             
             mask_patch = predict_mask(model, patch, device)
-            estimated_patch = mask_patch * patch
+            estimated_patch = mask_patch * patch  # mask * mix = vocals
             
-            estimated_vocals_magnitude_norm[:, start:end] += estimated_patch
+            estimated_vocals_magnitude[:, start:end] += estimated_patch
             weight[:, start:end] += 1.0
         
         # Traiter la partie restante
         if start + patch_frames < magnitude.shape[1]:
-            patch = mix_spec_norm[:, -patch_frames:]
+            patch = mix_spec[:, -patch_frames:]
             mask_patch = predict_mask(model, patch, device)
             estimated_patch = mask_patch * patch
-            estimated_vocals_magnitude_norm[:, -patch_frames:] += estimated_patch
+            estimated_vocals_magnitude[:, -patch_frames:] += estimated_patch
             weight[:, -patch_frames:] += 1.0
         
         # Normaliser (gérer le chevauchement)
-        estimated_vocals_magnitude_norm /= (weight + 1e-8)
+        estimated_vocals_magnitude /= (weight + 1e-8)
     
-    # 5. Dénormaliser
-    print("  Dénormalisation...")
-    estimated_vocals_magnitude = denormalize_spectrogram(estimated_vocals_magnitude_norm)
-    
-    # 6. Reconstruire l'audio (utiliser la phase du mix original)
+    # 5. Reconstruire l'audio (utiliser la phase du mix original)
     print("  Reconstruction de l'audio...")
-    vocals_audio = spectrogram_to_audio(estimated_vocals_magnitude, phase, hop_length=768)
+    # 重建的音频是8192Hz采样率
+    vocals_audio_8192 = spectrogram_to_audio(
+        estimated_vocals_magnitude, 
+        phase, 
+        hop_length=768,
+        n_fft=1024
+    )
+    
+    # 6. Rééchantillonnage au taux d'échantillonnage original
+    print(f"  Rééchantillonnage de 8192 Hz vers {original_sr} Hz...")
+    if original_sr != 8192:
+        vocals_audio = librosa.resample(vocals_audio_8192, orig_sr=8192, target_sr=original_sr)
+    else:
+        vocals_audio = vocals_audio_8192
+    
+    # 验证长度
+    reconstructed_length = len(vocals_audio) / original_sr
+    print(f"  Longueur de l'audio reconstruit : {reconstructed_length:.2f} secondes")
+    if abs(reconstructed_length - original_length) > 1.0:
+        print(f"  ⚠️  ATTENTION : Longueur différente de l'original ({original_length:.2f}s vs {reconstructed_length:.2f}s)")
     
     # 7. Sauvegarder le fichier audio
     if output_path:
-        # Rééchantillonnage au taux d'échantillonnage original (si nécessaire)
-        if sr != 8192:
-            vocals_audio = librosa.resample(vocals_audio, orig_sr=8192, target_sr=sr)
-        
-        sf.write(output_path, vocals_audio, sr)
+        sf.write(output_path, vocals_audio, original_sr)
         print(f"  ✓ Audio vocal sauvegardé : {output_path}")
     
-    return vocals_audio, sr
+    return vocals_audio, original_sr
 
 
-def visualize_prediction(mix_spec, mix_spec_norm, mask, estimated_vocals_norm, save_path=None):
+def visualize_prediction(mix_spec, mix_spec_input, mask, estimated_vocals, save_path=None):
     """
-    Visualiser les résultats de prédiction (utiliser les données dénormalisées, assurer une visualisation correcte)
+    Visualiser les résultats de prédiction
     
     Args:
-        mix_spec: Spectrogramme du mix original (non normalisé)
-        mix_spec_norm: Spectrogramme du mix normalisé
+        mix_spec: Spectrogramme du mix original
+        mix_spec_input: Spectrogramme du mix utilisé comme entrée (现在与mix_spec相同)
         mask: Mask prédit
-        estimated_vocals_norm: Vocals estimés normalisés
+        estimated_vocals: Vocals estimés (mask * mix)
         save_path: Chemin de sauvegarde (optionnel)
     """
-    # Dénormaliser estimated_vocals pour la visualisation
-    estimated_vocals = denormalize_spectrogram(estimated_vocals_norm)
+    # 新方法：不需要denormalization，直接使用
     
     fig, axes = plt.subplots(2, 2, figsize=(16, 10))
     
@@ -352,18 +399,79 @@ def visualize_prediction(mix_spec, mix_spec_norm, mask, estimated_vocals_norm, s
         plt.show()
 
 
-def test_inference(audio_path=None, checkpoint_path="checkpoints/best_model.pth", n_channels=64):
+def find_latest_checkpoint(checkpoint_dir="checkpoints"):
+    """
+    自动找到最新的checkpoint文件
+    
+    Args:
+        checkpoint_dir: 目录包含checkpoints
+        
+    Returns:
+        checkpoint_path: 最新checkpoint的路径，如果不存在则返回None
+    """
+    if not os.path.exists(checkpoint_dir):
+        return None
+    
+    # 优先顺序：best_model.pth > final_model.pth > 其他按修改时间排序
+    best_model_path = os.path.join(checkpoint_dir, "best_model.pth")
+    final_model_path = os.path.join(checkpoint_dir, "final_model.pth")
+    
+    if os.path.exists(best_model_path):
+        return best_model_path
+    elif os.path.exists(final_model_path):
+        return final_model_path
+    else:
+        # 查找所有.pth文件，按修改时间排序
+        checkpoint_files = []
+        for file in os.listdir(checkpoint_dir):
+            if file.endswith('.pth'):
+                file_path = os.path.join(checkpoint_dir, file)
+                mtime = os.path.getmtime(file_path)
+                checkpoint_files.append((mtime, file_path))
+        
+        if checkpoint_files:
+            # 按修改时间降序排序，返回最新的
+            checkpoint_files.sort(reverse=True)
+            return checkpoint_files[0][1]
+    
+    return None
+
+
+def test_inference(audio_path=None, checkpoint_path=None, n_channels=64):
     """
     Tester la fonction d'inférence : séparer la voix d'un fichier audio
     
     Args:
         audio_path: Chemin du fichier audio d'entrée (si None, essaiera de charger depuis MUSDB)
-        checkpoint_path: Chemin du checkpoint du modèle
+        checkpoint_path: Chemin du checkpoint du modèle (si None, 自动查找最新的)
         n_channels: Nombre de canaux du modèle (doit correspondre à l'entraînement)
     """
     print("=" * 70)
     print("Inférence de Séparation Vocale U-Net")
     print("=" * 70)
+    
+    # 如果没有指定checkpoint，自动查找最新的
+    if checkpoint_path is None:
+        print("\nRecherche du checkpoint le plus récent...")
+        checkpoint_path = find_latest_checkpoint()
+        if checkpoint_path:
+            print(f"  ✓ Checkpoint trouvé : {checkpoint_path}")
+        else:
+            print("  ✗ Aucun checkpoint trouvé dans le dossier 'checkpoints'")
+            print("  Veuillez d'abord entraîner le modèle : python train.py")
+            return
+    else:
+        # 如果指定了checkpoint，检查是否存在
+        if not os.path.exists(checkpoint_path):
+            print(f"\n⚠️  Checkpoint spécifié introuvable : {checkpoint_path}")
+            print("Tentative de recherche automatique...")
+            checkpoint_path = find_latest_checkpoint()
+            if checkpoint_path:
+                print(f"  ✓ Checkpoint trouvé : {checkpoint_path}")
+            else:
+                print("  ✗ Aucun checkpoint trouvé")
+                print("  Veuillez d'abord entraîner le modèle : python train.py")
+                return
     
     # Vérifier le fichier du modèle
     if not os.path.exists(checkpoint_path):
@@ -392,12 +500,12 @@ def test_inference(audio_path=None, checkpoint_path="checkpoints/best_model.pth"
             librosa.load(audio_path, sr=8192, duration=5)[0],
             sample_rate=8192
         )
-        mix_spec_norm = normalize_spectrogram(mix_magnitude)
-        mask = predict_mask(model, mix_spec_norm, device)
-        estimated_vocals_norm = mask * mix_spec_norm
+        mix_spec = mix_magnitude  # 新方法：不使用normalization
+        mask = predict_mask(model, mix_spec, device)
+        estimated_vocals = mask * mix_spec  # mask * mix = vocals
         
         visualize_prediction(
-            mix_magnitude, mix_spec_norm, mask, estimated_vocals_norm,
+            mix_magnitude, mix_spec, mask, estimated_vocals,
             "inference_result.png"
         )
         
@@ -448,13 +556,13 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Inférence de séparation vocale U-Net')
     parser.add_argument('--audio', type=str, default=None, help='Chemin du fichier audio d\'entrée')
-    parser.add_argument('--checkpoint', type=str, default='checkpoints/best_model.pth', help='Chemin du checkpoint du modèle')
+    parser.add_argument('--checkpoint', type=str, default=None, help='Chemin du checkpoint du modèle (si None, 自动查找最新的)')
     parser.add_argument('--n-channels', type=int, default=64, help='Nombre de canaux du modèle (doit correspondre à l\'entraînement)')
     
     args = parser.parse_args()
     
     test_inference(
         audio_path=args.audio,
-        checkpoint_path=args.checkpoint,
+        checkpoint_path=args.checkpoint,  # None = 自动查找
         n_channels=args.n_channels
     )

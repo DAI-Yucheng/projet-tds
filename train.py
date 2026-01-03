@@ -1,9 +1,10 @@
 """
 Entraînement du modèle U-Net pour la séparation de sources
 
-Méthode d'entraînement Oracle Mask :
-- Cible d'entraînement : oracle_mask = vocals / (mix + eps), calculé dans le domaine d'amplitude linéaire
-- Loss : L1(mask, oracle_mask), supervision directe
+Méthode simplifiée selon notebook :
+- Cible d'entraînement : vocals magnitude (direct)
+- Loss : MSE(vocals_pred, vocals_true), où vocals_pred = mask * mix
+- Pas de log normalization, utilisation directe des magnitude spectrograms
 """
 
 import torch
@@ -22,14 +23,21 @@ from data_generator import SpectrogramGenerator
 from unet_model import UNet
 
 
-class OracleMaskLoss(nn.Module):
-    """Oracle Mask Loss : L = || mask - oracle_mask ||₁"""
+class VocalsMagnitudeLoss(nn.Module):
+    """Vocals Magnitude Loss : L = || mask * mix - vocals ||₂ (MSE)"""
     def __init__(self):
-        super(OracleMaskLoss, self).__init__()
-        self.l1 = nn.L1Loss()
+        super(VocalsMagnitudeLoss, self).__init__()
+        self.mse = nn.MSELoss()
     
-    def forward(self, mask, oracle_mask):
-        return self.l1(mask, oracle_mask)
+    def forward(self, mask, mix, vocals):
+        """
+        Args:
+            mask: Prédiction du mask, shape (batch, freq_bins, time_frames)
+            mix: Spectrogramme du mix, shape (batch, freq_bins, time_frames)
+            vocals: Spectrogramme des vocals (cible), shape (batch, freq_bins, time_frames)
+        """
+        vocals_pred = mask * mix
+        return self.mse(vocals_pred, vocals)
 
 
 def train_epoch(model, dataloader, criterion, optimizer, device, epoch, n_epochs):
@@ -40,13 +48,13 @@ def train_epoch(model, dataloader, criterion, optimizer, device, epoch, n_epochs
     
     iterator = tqdm(dataloader, desc=f"Epoch {epoch}/{n_epochs}") if HAS_TQDM else dataloader
     
-    for mix_spec, oracle_mask in iterator:
+    for mix_spec, vocals_spec in iterator:
         mix_spec = torch.FloatTensor(mix_spec).to(device)
-        oracle_mask = torch.FloatTensor(oracle_mask).to(device)
+        vocals_spec = torch.FloatTensor(vocals_spec).to(device)
         
         optimizer.zero_grad()
         mask = model(mix_spec)
-        loss = criterion(mask, oracle_mask)
+        loss = criterion(mask, mix_spec, vocals_spec)
         
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -68,12 +76,12 @@ def validate(model, dataloader, criterion, device):
     num_batches = 0
     
     with torch.no_grad():
-        for mix_spec, oracle_mask in dataloader:
+        for mix_spec, vocals_spec in dataloader:
             mix_spec = torch.FloatTensor(mix_spec).to(device)
-            oracle_mask = torch.FloatTensor(oracle_mask).to(device)
+            vocals_spec = torch.FloatTensor(vocals_spec).to(device)
             
             mask = model(mix_spec)
-            loss = criterion(mask, oracle_mask)
+            loss = criterion(mask, mix_spec, vocals_spec)
             
             total_loss += loss.item()
             num_batches += 1
@@ -148,12 +156,12 @@ def train(
     val_generator.mus.tracks = generator.mus.tracks[:]
     validation_batches = val_generator.generate_fixed_validation_set(n_batches=15, seed=42)
     
-    # Modèle
-    model = UNet(n_freq_bins=513, n_time_frames=128, n_channels=64, n_layers=4).to(device)
+    # Modèle - utiliser 512频率bins (comme notebook)
+    model = UNet(n_freq_bins=512, n_time_frames=128, n_channels=64, n_layers=4).to(device)
     total_params = sum(p.numel() for p in model.parameters())
     print(f"\nNombre de paramètres du modèle : {total_params:,}")
     
-    criterion = OracleMaskLoss()
+    criterion = VocalsMagnitudeLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, betas=(0.9, 0.999), weight_decay=1e-5)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-6)
     
