@@ -137,7 +137,7 @@ def train(
     os.makedirs(save_dir, exist_ok=True)
     
     # Générateur de données
-    musdb_path = "/MUSDB18/musdb18"
+    musdb_path = "MUSDB18/musdb18"  # Chemin relatif au répertoire du projet
     generator = SpectrogramGenerator(
         batch_size=batch_size,
         chunk_duration=12.0,
