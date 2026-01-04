@@ -4,11 +4,9 @@ Utilisation du modèle U-Net entraîné pour l'inférence, génération d'audio 
 Processus complet :
 1. Charger le fichier audio (mix)
 2. Convertir en spectrogramme (utiliser les mêmes paramètres que l'entraînement)
-3. Normaliser (identique à l'entraînement)
-4. Prédire le mask avec le modèle
-5. Dénormaliser
-6. Reconstruire l'audio (ISTFT)
-7. Sauvegarder le fichier audio vocal
+3. Prédire le mask avec le modèle
+4. Reconstruire l'audio (ISTFT)
+5. Sauvegarder le fichier audio vocal
 """
 
 import torch
@@ -20,7 +18,7 @@ import matplotlib.pyplot as plt
 import os
 
 
-def load_model(checkpoint_path, device='cpu', n_channels=64):
+def load_model(checkpoint_path, device='cpu', n_channels=16):
     """
     Charger le modèle entraîné
     
@@ -35,10 +33,10 @@ def load_model(checkpoint_path, device='cpu', n_channels=64):
     # Créer le modèle (doit correspondre à la configuration d'entraînement)
     # Attention : maintenant on utilise 512 bins de fréquence (pas 513), cohérent avec la nouvelle méthode d'entraînement
     model = UNet(
-        n_freq_bins=512,  # Modification : 512 au lieu de 513
+        n_freq_bins=512,  
         n_time_frames=128,
         n_channels=n_channels,  # Utiliser le nombre de canaux de l'entraînement
-        n_layers=4
+        n_layers=6
     )
     
     # Charger le checkpoint
@@ -102,39 +100,6 @@ def audio_to_spectrogram(audio, original_sr=None, sample_rate=8192, n_fft=1024, 
     return magnitude, phase
 
 
-def normalize_spectrogram(spec):
-    """
-    Normaliser le spectrogramme (identique à l'entraînement)
-    
-    Attention : selon la nouvelle méthode d'entraînement, on n'utilise plus la log normalization
-    Retourne directement la magnitude originale (cohérent avec data_generator)
-    
-    Args:
-        spec: Spectrogramme de magnitude
-        
-    Returns:
-        spec: Spectrogramme de magnitude (pas de normalisation, utilisation directe)
-    """
-    # Nouvelle méthode : pas de log normalization, utilisation directe de la magnitude originale
-    return spec
-
-
-def denormalize_spectrogram(spec):
-    """
-    Dénormaliser le spectrogramme
-    
-    Attention : comme on n'utilise plus la normalisation, cette fonction retourne simplement la valeur originale
-    
-    Args:
-        spec: Spectrogramme de magnitude
-        
-    Returns:
-        spec: Spectrogramme de magnitude (inchangé)
-    """
-    # Nouvelle méthode : pas besoin de dénormalisation, retour direct
-    return spec
-
-
 def spectrogram_to_audio(magnitude, phase, hop_length=768, n_fft=1024):
     """
     Reconstruire l'audio à partir de magnitude et phase (ISTFT)
@@ -148,7 +113,7 @@ def spectrogram_to_audio(magnitude, phase, hop_length=768, n_fft=1024):
     Returns:
         audio: Tableau audio reconstruit
     """
-    # Important : nous devons reconstruire le STFT complet (513 bins de fréquence)
+    # Important : nous devons reconstruire le STFT complet (librosa exige 513 bins de fréquence)
     # Car nous n'avons pris que les 512 premiers bins, il faut compléter à 513 (n_fft//2+1)
     full_freq_bins = n_fft // 2 + 1  # 513
     
@@ -322,13 +287,12 @@ def separate_vocals(audio_path, model, device='cpu', output_path=None):
     return vocals_audio, original_sr
 
 
-def visualize_prediction(mix_spec, mix_spec_input, mask, estimated_vocals, save_path=None):
+def visualize_prediction(mix_spec, mask, estimated_vocals, save_path=None):
     """
     Visualiser les résultats de prédiction
     
     Args:
         mix_spec: Spectrogramme du mix original
-        mix_spec_input: Spectrogramme du mix utilisé comme entrée (maintenant identique à mix_spec)
         mask: Mask prédit
         estimated_vocals: Vocals estimés (mask * mix)
         save_path: Chemin de sauvegarde (optionnel)
@@ -399,7 +363,7 @@ def visualize_prediction(mix_spec, mix_spec_input, mask, estimated_vocals, save_
         plt.show()
 
 
-def find_latest_checkpoint(checkpoint_dir="checkpoints"):
+def find_latest_checkpoint(checkpoint_dir="vocal_checkpoints"):
     """
     Trouver automatiquement le fichier checkpoint le plus récent
     
@@ -437,7 +401,7 @@ def find_latest_checkpoint(checkpoint_dir="checkpoints"):
     return None
 
 
-def test_inference(audio_path=None, checkpoint_path=None, n_channels=64):
+def test_inference(audio_path=None, checkpoint_path=None, n_channels=16):
     """
     Tester la fonction d'inférence : séparer la voix d'un fichier audio
     
@@ -505,8 +469,8 @@ def test_inference(audio_path=None, checkpoint_path=None, n_channels=64):
         estimated_vocals = mask * mix_spec  # mask * mix = vocals
         
         visualize_prediction(
-            mix_magnitude, mix_spec, mask, estimated_vocals,
-            "inference_result.png"
+            mix_magnitude, mask, estimated_vocals,
+            "vocal_inference_result.png"
         )
         
     else:

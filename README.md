@@ -1,6 +1,24 @@
 # Projet de Séparation de Sources Vocales avec U-Net
 
-## 📋 Vue d'ensemble
+## Table des Matières
+
+1. [Vue d'ensemble](#vue-densemble)
+2. [Structure du Projet et Relations entre les Fichiers](#structure-du-projet-et-relations-entre-les-fichiers)
+3. [Flux de Données Complet](#flux-de-données-complet)
+4. [Installation](#installation)
+5. [Utilisation](#utilisation)
+6. [Paramètres Techniques](#paramètres-techniques)
+7. [Structure des Fichiers](#structure-des-fichiers)
+8. [Explication des Concepts Clés](#explication-des-concepts-clés)
+9. [Problèmes Courants](#problèmes-courants)
+10. [Résultats Attendus](#résultats-attendus)
+11. [Références](#références)
+12. [Objectifs du Projet](#objectifs-du-projet-tp)
+13. [Conseils](#conseils)
+
+---
+
+## Vue d'ensemble
 
 Ce projet implémente un modèle U-Net pour séparer la voix (vocals) d'une chanson mixée. Le modèle apprend à prédire un "masque" (mask) qui indique quelle partie du spectrogramme (représentation fréquentielle de l'audio) correspond à la voix.
 
@@ -8,7 +26,7 @@ Ce projet implémente un modèle U-Net pour séparer la voix (vocals) d'une chan
 
 ---
 
-## 🗂️ Structure du Projet et Relations entre les Fichiers
+## Structure du Projet et Relations entre les Fichiers
 
 ### Architecture générale
 
@@ -125,7 +143,7 @@ python inference.py --audio ma_chanson.wav
 
 ---
 
-## 🔄 Flux de Données Complet
+## Flux de Données Complet
 
 ### Phase 1 : Préparation des données
 
@@ -177,15 +195,9 @@ Fichier audio vocal extrait
 
 ---
 
-## 📦 Installation
+## Installation
 
-### 1. Créer l'environement 
-```
-conda create -n SON python=3.12 -y
-conda activate SON 
-```
-
-### 2. Dépendances système
+### 1. Dépendances système
 
 **Important** : `musdb` nécessite `ffmpeg` pour traiter les fichiers audio.
 
@@ -193,6 +205,15 @@ conda activate SON
 # Ubuntu/WSL
 sudo apt-get update
 sudo apt-get install -y ffmpeg
+
+# Vérifier l'installation
+ffmpeg -version
+```
+
+### 2. Créer l'environement conda si vous utilisez pas linux ecosystème (Ubuntu/WSL) 
+```bash
+conda create -n SON python=3.12 -y
+conda activate SON 
 
 # Conda env
 conda install conda-forge::musdb -y 
@@ -232,7 +253,7 @@ Le code détectera automatiquement ce chemin. Si le dataset complet n'est pas tr
 
 ---
 
-## 🚀 Utilisation
+## Utilisation
 
 ### Étape 1 : Tester le générateur de données
 
@@ -265,10 +286,14 @@ python train.py --cpu
 - `--n-songs` : 5-10 (pour un entraînement rapide)
 
 ### Étape 3 : Utiliser le modèle pour séparer la voix
-
+Créer un nouveau sous répertoire `vocal_checkpoints` (pour faciliter la séparation instrumentale si vous souhaitez le faire ultérieurement) et faites :
 ```bash
-# Utiliser un fichier audio
-python inference.py --audio ma_chanson.wav
+cp checkpoints/* vocal_checkpoints/ 
+```
+Puis:
+```bash
+# Spécifier le checkpoint
+python inference.py --audio mon_mix.wav --n-channels 16 --checkpoint vocal_checkpoints/best_model.pth
 
 # Utiliser le dataset MUSDB (première chanson)
 python inference.py
@@ -278,7 +303,7 @@ Le fichier vocal sera sauvegardé avec le suffixe `_vocals.wav`.
 
 ---
 
-## 📊 Paramètres Techniques
+## Paramètres Techniques
 
 ### Paramètres du spectrogramme (selon le papier)
 
@@ -311,7 +336,7 @@ Le fichier vocal sera sauvegardé avec le suffixe `_vocals.wav`.
 
 ---
 
-## 📁 Structure des Fichiers
+## Structure des Fichiers
 
 ```
 projet_tds/
@@ -331,7 +356,7 @@ projet_tds/
 
 ---
 
-## 🔍 Explication des Concepts Clés
+## Explication des Concepts Clés
 
 ### Qu'est-ce qu'un spectrogramme ?
 
@@ -363,7 +388,7 @@ Au lieu de dire au modèle "voici le spectrogramme vocal que tu dois produire", 
 
 ---
 
-## ⚠️ Problèmes Courants
+## Problèmes Courants
 
 ### Erreur : "ffmpeg or ffprobe could not be found"
 
@@ -394,7 +419,7 @@ pip install torch torchvision torchaudio
 
 ---
 
-## 📈 Résultats Attendus
+## Résultats Attendus
 
 Après l'entraînement, vous devriez voir :
 - **Loss initiale** : ~0.3-0.4
@@ -405,7 +430,7 @@ Le modèle sauvegardé dans `checkpoints/best_model.pth` peut être utilisé pou
 
 ---
 
-## 📚 Références
+## Références
 
 - **Dataset** : MUSDB18 (https://sigsep.github.io/datasets/musdb.html)
 - **Architecture** : U-Net (adapté pour la séparation de sources)
@@ -413,17 +438,17 @@ Le modèle sauvegardé dans `checkpoints/best_model.pth` peut être utilisé pou
 
 ---
 
-## 🎯 Objectifs du Projet (TP)
+## Objectifs du Projet (TP)
 
-1. ✅ **Étape 1** : Implémenter la génération de données (spectrogrammes avec overlap)
-2. ✅ **Étape 2** : Implémenter et entraîner le modèle U-Net
-3. ✅ **Objectif** : Faire converger le modèle (pas nécessairement obtenir les meilleures performances)
+1. **Étape 1** : Implémenter la génération de données (spectrogrammes avec overlap)
+2. **Étape 2** : Implémenter et entraîner le modèle U-Net
+3. **Objectif** : Faire converger le modèle (pas nécessairement obtenir les meilleures performances)
 
 **Note** : Ce projet est une version simplifiée pour l'apprentissage. Les performances peuvent être améliorées avec plus de données, un modèle plus grand, et un entraînement plus long.
 
 ---
 
-## 💡 Conseils
+## Conseils
 
 - Commencez avec peu de chansons (5-10) pour tester rapidement
 - Surveillez le loss : il devrait diminuer, pas augmenter
@@ -432,4 +457,4 @@ Le modèle sauvegardé dans `checkpoints/best_model.pth` peut être utilisé pou
 
 ---
 
-**Bon entraînement ! 🎵**
+**Bon entraînement !**
