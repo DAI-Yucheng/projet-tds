@@ -225,8 +225,8 @@ Le dataset MUSDB18 complet doit être **téléchargé manuellement** depuis [Zen
 **Instructions** :
 1. Télécharger depuis : https://zenodo.org/records/1117372
 2. Extraire le fichier `musdb18.zip` (4.7 GB)
-3. Placer le dossier `musdb18` dans : `/home/dyc/MUSDB18/`
-4. Structure attendue : `/home/dyc/MUSDB18/musdb18/train/` et `/home/dyc/MUSDB18/musdb18/test/`
+3. Créer un sous répertoire `MUSDB18` dans `projet-tds` et placer le dossier `musdb18` dedans
+4. Structure attendue : `/MUSDB18/musdb18/train/` et `/MUSDB18/musdb18/test/`
 
 Le code détectera automatiquement ce chemin. Si le dataset complet n'est pas trouvé, il demandera confirmation avant de télécharger la version demo.
 
@@ -243,7 +243,7 @@ python data_generator.py
 Cela vérifie que :
 - Le dataset MUSDB est accessible
 - Les spectrogrammes sont générés correctement
-- Les patches ont la bonne taille (513 × 128)
+- Les patches ont la bonne taille (512 × 128)
 
 ### Étape 2 : Entraîner le modèle
 

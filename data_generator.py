@@ -5,7 +5,7 @@ Selon les paramètres du papier :
 - Taux d'échantillonnage : 8192 Hz
 - STFT : window=1024, hop=768
 - Longueur de patch : 128 frames
-- Chevauchement : un patch tous les 32 frames (75% de chevauchement)
+- Chevauchement : un patch tous les 64 frames (50% de chevauchement)
 """
 
 import numpy as np
@@ -26,7 +26,7 @@ class SpectrogramGenerator:
         n_fft: int = 1024,
         hop_length: int = 768,
         patch_frames: int = 128,
-        patch_hop: int = 32,  # Un patch tous les 32 frames, réalise 75% de chevauchement
+        patch_hop: int = 64,  # Un patch tous les 64 frames, réalise 50% de chevauchement
         chunk_duration: float = 5.0,
         batch_size: int = 16
     ):
@@ -58,7 +58,7 @@ class SpectrogramGenerator:
             self.mus = musdb.DB(root=musdb_path, download=False)
         else:
             # Vérifier d'abord le dataset complet téléchargé manuellement par l'utilisateur
-            default_path = "/home/dyc/MUSDB18/musdb18"
+            default_path = "MUSDB18/musdb18"
             if os.path.exists(default_path):
                 print(f"   Utilisation du dataset complet par défaut : {default_path}")
                 self.mus = musdb.DB(root=default_path, download=False)
@@ -139,7 +139,7 @@ class SpectrogramGenerator:
         
         # Utiliser seulement les 512 premiers bins de fréquence (au lieu de 513)
         # Cela facilite le traitement par le réseau (puissance de 2)
-        magnitude = magnitude[:512, :]
+        magnitude = magnitude[:512, :] # Spectrogramme shape : (freq_bins = 512, time_frames)
         
         return magnitude
     
@@ -157,8 +157,8 @@ class SpectrogramGenerator:
         freq_bins, time_frames = spectrogram.shape
         
         patches = []
-        # Utiliser 50% de chevauchement (stride = patch_size // 2) comme dans notebook
-        stride = self.patch_frames // 2
+        # Utiliser 50% de chevauchement (stride = patch_size // 2) 
+        stride = self.patch_hop 
         
         for i in range(0, time_frames - self.patch_frames + 1, stride):
             patch = spectrogram[:, i:i+self.patch_frames]
@@ -315,8 +315,11 @@ class SpectrogramGenerator:
         """
         # Sauvegarder et définir la graine aléatoire (fixer à la fois python random et numpy.random)
         # Cela permet de s'assurer que l'ensemble de validation est complètement fixe, même si le code suivant utilise np.random
+        # Mémorise l'état actuel des générateurs aléatoires Python et NumPy
         old_state = random.getstate()
         old_np_state = np.random.get_state()
+
+        # Fixation de la graine -> seed = 42 (séquence aléatoire) -> À chaque appel avec même seed → mêmes tracks, mêmes positions, mêmes patches
         random.seed(seed)
         np.random.seed(seed)
         
@@ -327,7 +330,7 @@ class SpectrogramGenerator:
             # Générer un nombre fixe de batches
             for i in range(n_batches):
                 try:
-                    batch = next(gen)
+                    batch = next(gen)   # Obtenir le batch suivant -> chaque batch contient mix et vocals
                     val_batches.append(batch)
                 except StopIteration:
                     break

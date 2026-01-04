@@ -10,7 +10,7 @@ Cette étape implémente le pipeline de données pour générer des patches de s
 - **Fenêtre STFT**: 1024
 - **Hop STFT**: 768
 - **Longueur de patch**: 128 trames
-- **Shape d'entrée**: (freq_bins, 128) ≈ (513, 128)
+- **Shape d'entrée**: (freq_bins, 128) ≈ (512,128)
 
 ## Points Clés d'Implémentation
 

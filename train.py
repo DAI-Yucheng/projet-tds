@@ -22,22 +22,37 @@ except ImportError:
 from data_generator import SpectrogramGenerator
 from unet_model import UNet
 
-
-class VocalsMagnitudeLoss(nn.Module):
-    """Vocals Magnitude Loss : L = || mask * mix - vocals ||₂ (MSE)"""
-    def __init__(self):
-        super(VocalsMagnitudeLoss, self).__init__()
-        self.mse = nn.MSELoss()
+class DataLoader:
+    def __init__(self, generator, batches_per_epoch):
+        self.generator = generator
+        self.batches_per_epoch = batches_per_epoch
     
-    def forward(self, mask, mix, vocals):
+    def __len__(self):
+        return self.batches_per_epoch
+    
+    def __iter__(self):
+        gen = self.generator.generate_batch()
+        for _ in range(self.batches_per_epoch):
+            yield next(gen)
+
+class MaskedL1Loss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.l1 = nn.L1Loss(reduction="mean")
+
+    def forward(self, X, mask, Y):
         """
         Args:
-            mask: Prédiction du mask, shape (batch, freq_bins, time_frames)
-            mix: Spectrogramme du mix, shape (batch, freq_bins, time_frames)
-            vocals: Spectrogramme des vocals (cible), shape (batch, freq_bins, time_frames)
+            X (Tensor): spectrogramme du mix (batch, freq_bins, time_frames)
+            mask (Tensor): masque prédit par le réseau (batch, freq_bins, time_frames)
+            Y (Tensor): spectrogramme cible (batch, freq_bins, time_frames)
+
+        Returns:
+            loss (Tensor): valeur scalaire
         """
-        vocals_pred = mask * mix
-        return self.mse(vocals_pred, vocals)
+        Y_hat = mask * X      # ⊙ produit élément par élément
+        loss = self.l1(Y_hat, Y)
+        return loss
 
 
 def train_epoch(model, dataloader, criterion, optimizer, device, epoch, n_epochs):
@@ -66,7 +81,7 @@ def train_epoch(model, dataloader, criterion, optimizer, device, epoch, n_epochs
         if HAS_TQDM:
             iterator.set_postfix({'loss': f'{loss.item():.4f}'})
     
-    return total_loss / num_batches
+    return total_loss / num_batches # la moyenne de la L1 distance sur tous les batches 
 
 
 def validate(model, dataloader, criterion, device):
@@ -122,7 +137,7 @@ def train(
     os.makedirs(save_dir, exist_ok=True)
     
     # Générateur de données
-    musdb_path = "/home/dyc/MUSDB18/musdb18"
+    musdb_path = "/MUSDB18/musdb18"
     generator = SpectrogramGenerator(
         batch_size=batch_size,
         chunk_duration=12.0,
@@ -131,19 +146,6 @@ def train(
     
     if n_songs < len(generator.mus.tracks):
         generator.mus.tracks = generator.mus.tracks[:n_songs]
-    
-    class DataLoader:
-        def __init__(self, generator, batches_per_epoch):
-            self.generator = generator
-            self.batches_per_epoch = batches_per_epoch
-        
-        def __len__(self):
-            return self.batches_per_epoch
-        
-        def __iter__(self):
-            gen = self.generator.generate_batch()
-            for _ in range(self.batches_per_epoch):
-                yield next(gen)
     
     data_loader = DataLoader(generator, batches_per_epoch)
     
@@ -156,12 +158,12 @@ def train(
     val_generator.mus.tracks = generator.mus.tracks[:]
     validation_batches = val_generator.generate_fixed_validation_set(n_batches=15, seed=42)
     
-    # Modèle - utiliser 512频率bins (comme notebook)
-    model = UNet(n_freq_bins=512, n_time_frames=128, n_channels=64, n_layers=4).to(device)
+    # Modèle - utiliser 512 fréquence bins 
+    model = UNet(n_freq_bins=512, n_time_frames=128, n_channels=16, n_layers=6).to(device)
     total_params = sum(p.numel() for p in model.parameters())
     print(f"\nNombre de paramètres du modèle : {total_params:,}")
     
-    criterion = VocalsMagnitudeLoss()
+    criterion = MaskedL1Loss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, betas=(0.9, 0.999), weight_decay=1e-5)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-6)
     
