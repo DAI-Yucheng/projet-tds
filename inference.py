@@ -521,7 +521,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Inférence de séparation vocale U-Net')
     parser.add_argument('--audio', type=str, default=None, help='Chemin du fichier audio d\'entrée')
     parser.add_argument('--checkpoint', type=str, default=None, help='Chemin du checkpoint du modèle (si None, recherche automatique du plus récent)')
-    parser.add_argument('--n-channels', type=int, default=64, help='Nombre de canaux du modèle (doit correspondre à l\'entraînement)')
+    parser.add_argument('--n-channels', type=int, default=16, help='Nombre de canaux du modèle (doit correspondre à l\'entraînement)')
     
     args = parser.parse_args()
     
