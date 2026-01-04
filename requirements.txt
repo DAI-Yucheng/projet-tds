@@ -4,6 +4,8 @@ librosa>=0.10.0
 numpy>=1.21.0
 soundfile>=0.12.0
 matplotlib>=3.5.0
+museval>=0.4.0  # Pour l'évaluation des métriques SDR, SIR, SAR
+pandas>=1.3.0  # Pour le traitement des résultats d'évaluation
 
 # Framework d'apprentissage profond
 # Note : PyTorch doit être installé séparément (voir explication ci-dessous)
