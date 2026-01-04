@@ -296,7 +296,7 @@ class SpectrogramGenerator:
                 tqdm.write(f"\nInformations de diagnostic du premier batch :")
                 tqdm.write(f"  mix magnitude - min : {x_batch.min():.4f}, max : {x_batch.max():.4f}, mean : {x_batch.mean():.4f}")
                 tqdm.write(f"  vocals magnitude - min : {y_batch.min():.4f}, max : {y_batch.max():.4f}, mean : {y_batch.mean():.4f}")
-                tqdm.write(f"  ✓ Utilisation directe des magnitude spectrograms (méthode notebook)")
+                tqdm.write(f"  ✓ Utilisation directe des magnitude spectrograms")
                 self._first_batch_printed = True
             
             # Retourner directement : mix magnitude et vocals magnitude (pas de normalisation)

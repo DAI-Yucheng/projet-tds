@@ -3,7 +3,7 @@ Entraînement du modèle U-Net pour la séparation de sources
 
 Méthode simplifiée selon notebook :
 - Cible d'entraînement : vocals magnitude (direct)
-- Loss : MSE(vocals_pred, vocals_true), où vocals_pred = mask * mix
+- Loss : MaskedL1Loss(vocals_pred, vocals_true), où vocals_pred = mask * mix
 - Pas de log normalization, utilisation directe des magnitude spectrograms
 """
 

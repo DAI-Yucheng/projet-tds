@@ -226,7 +226,7 @@ Le dataset MUSDB18 complet doit être **téléchargé manuellement** depuis [Zen
 1. Télécharger depuis : https://zenodo.org/records/1117372
 2. Extraire le fichier `musdb18.zip` (4.7 GB)
 3. Créer un sous répertoire `MUSDB18` dans `projet-tds` et placer le dossier `musdb18` dedans
-4. Structure attendue : `/MUSDB18/musdb18/train/` et `/MUSDB18/musdb18/test/`
+4. Structure attendue : `MUSDB18/musdb18/train/` et `MUSDB18/musdb18/test/`
 
 Le code détectera automatiquement ce chemin. Si le dataset complet n'est pas trouvé, il demandera confirmation avant de télécharger la version demo.
 
@@ -286,21 +286,22 @@ Le fichier vocal sera sauvegardé avec le suffixe `_vocals.wav`.
 - **Taille de fenêtre STFT** : 1024
 - **Hop length** : 768
 - **Taille de patch** : 128 frames
-- **Overlap** : 75% (un patch tous les 32 frames)
+- **Overlap** : 50% (un patch tous les 64 frames)
 
 ### Architecture du modèle
 
-- **Fréquences** : 513 bins (1024/2 + 1)
+- **Fréquences** : 512 bins
 - **Frames temporelles** : 128
-- **Canaux initiaux** : 64
-- **Nombre de couches** : 4 (encoder + decoder)
+- **Canaux initiaux** : 16
+- **Nombre de couches** : 6 (encoder + decoder)
 
 ### Fonction de perte
 
-**Oracle Mask Loss** : `L = || mask - oracle_mask ||₁`
+**$L_{1,1}$ Mask Loss** : `L = || mask * X - Y ||₁,₁`
 
 - `mask` : Prédiction du modèle (entre 0 et 1)
-- `oracle_mask` : Vérité terrain = `vocals / (mix + eps)` (calculé dans le domaine linéaire)
+- `X` : Magnitude de la spectrogramme originale (mix)
+- `Y` : Magnitude de la spectrogramme target (vocal/instrumental)
 - `|| ||₁` : Norme L1 (somme des valeurs absolues des différences)
 
 **Pourquoi cette méthode ?**
