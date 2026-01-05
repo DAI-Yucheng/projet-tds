@@ -2,9 +2,9 @@
 Évaluation du modèle U-Net pour la séparation de sources vocales
 
 Utilise la bibliothèque museval pour calculer les métriques standard :
-- SDR (Signal-to-Distortion Ratio) : Signal-to-Distortion Ratio
-- SIR (Signal-to-Interference Ratio) : Signal-to-Interference Ratio  
-- SAR (Signal-to-Artifacts Ratio) : Signal-to-Artifacts Ratio
+- SDR : Signal-to-Distortion Ratio
+- SIR : Signal-to-Interference Ratio  
+- SAR : Signal-to-Artifacts Ratio
 
 Référence : https://github.com/sigsep/sigsep-mus-eval
 """
@@ -161,14 +161,14 @@ def evaluate_model(
     # Charger le dataset MUSDB
     print(f"\nChargement du dataset MUSDB depuis : {musdb_path}")
     if not os.path.exists(musdb_path):
-        print(f"⚠️  Chemin introuvable : {musdb_path}")
+        print(f"  Chemin introuvable : {musdb_path}")
         print("   Tentative avec le chemin par défaut...")
         musdb_path = "MUSDB18/musdb18"
     
     try:
         mus = musdb.DB(root=musdb_path, download=False)
     except Exception as e:
-        print(f"❌ Erreur lors du chargement du dataset : {e}")
+        print(f" Erreur lors du chargement du dataset : {e}")
         return None, None
     
     # Obtenir les tracks de test
@@ -242,7 +242,7 @@ def evaluate_model(
             print(f"  ✓ SDR: {vocals_sdr:.2f} dB | SIR: {vocals_sir:.2f} dB | SAR: {vocals_sar:.2f} dB")
             
         except Exception as e:
-            print(f"  ❌ Erreur lors de l'évaluation de {track.name}: {e}")
+            print(f"  Erreur lors de l'évaluation de {track.name}: {e}")
             continue
     
     # Créer le DataFrame des résultats
@@ -288,7 +288,7 @@ def evaluate_model(
         
         return results_df, summary
     else:
-        print("\n❌ Aucun résultat à afficher")
+        print("\n Aucun résultat à afficher")
         return None, None
 
 
@@ -355,11 +355,11 @@ def main():
                 break
         
         if checkpoint_path is None:
-            print("❌ Aucun checkpoint trouvé. Veuillez spécifier --checkpoint")
+            print(" Aucun checkpoint trouvé. Veuillez spécifier --checkpoint")
             return
     
     # Déterminer l'appareil
-    device = 'cpu' if args.cpu else None
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
     # Lancer l'évaluation
     results_df, summary = evaluate_model(
