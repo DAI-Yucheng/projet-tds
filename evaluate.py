@@ -169,6 +169,9 @@ def evaluate_separated_vocals(
         if f.endswith('_vocals.wav'):
             separated_files.append(f)
     
+    # Trier par ordre alphabétique pour un ordre cohérent
+    separated_files.sort()
+    
     print(f"\nFichiers séparés trouvés : {len(separated_files)}")
     
     if len(separated_files) == 0:
