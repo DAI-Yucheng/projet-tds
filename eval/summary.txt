@@ -4,6 +4,6 @@ RÉSULTATS GLOBAUX D'ÉVALUATION
 Nombre de tracks évalués : 8
 
 Métriques moyennes (vocals) :
-  SDR : -3.29 ± 7.23 dB
-  SIR : 3.55 ± 12.18 dB
-  SAR : 1.77 ± 2.31 dB
+  SDR : -3.36 ± 7.27 dB
+  SIR : 3.57 ± 11.79 dB
+  SAR : 1.73 ± 2.23 dB
