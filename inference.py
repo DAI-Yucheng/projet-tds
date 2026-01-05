@@ -375,7 +375,7 @@ def find_latest_checkpoint(checkpoint_dir="vocal_checkpoints"):
     return None
 
 
-def separate_musdb_tracks(checkpoint_path=None, n_channels=16, n_songs=None, musdb_path="MUSDB18/musdb18/test", output_dir="vocal_separation"):
+def separate_musdb_tracks(checkpoint_path=None, n_channels=16, n_songs=None, musdb_path="MUSDB18/musdb18", output_dir="vocal_separation"):
     """
     Séparer les vocals de chansons du test set MUSDB
     
@@ -545,7 +545,7 @@ def test_inference(audio_path=None, checkpoint_path=None, n_channels=16):
         # Essayer de charger l'audio de test depuis MUSDB
         try:
             import musdb
-            musdb_path = "MUSDB18/musdb18/test"
+            musdb_path = "MUSDB18/musdb18"
             if os.path.exists(musdb_path):
                 mus = musdb.DB(root=musdb_path, download=False)
                 if len(mus.tracks) > 0:
@@ -584,7 +584,7 @@ if __name__ == "__main__":
     parser.add_argument('--checkpoint', type=str, default=None, help='Chemin du checkpoint du modèle (si None, recherche automatique)')
     parser.add_argument('--n-channels', type=int, default=16, help='Nombre de canaux du modèle')
     parser.add_argument('--n-songs', type=int, default=None, help='Nombre de chansons MUSDB à séparer (None = mode fichier unique)')
-    parser.add_argument('--musdb-path', type=str, default='MUSDB18/musdb18/test', help='Chemin du dataset MUSDB')
+    parser.add_argument('--musdb-path', type=str, default='MUSDB18/musdb18', help='Chemin du dataset MUSDB')
     parser.add_argument('--output-dir', type=str, default='vocal_separation', help='Répertoire de sortie pour MUSDB')
     
     args = parser.parse_args()
