@@ -127,12 +127,8 @@ def train(
     batches_per_epoch: int = 50
 ):
     """Entraîner le modèle U-Net"""
-    print("=" * 70)
-    print("Début de l'entraînement du modèle U-Net")
-    print("=" * 70)
-    
     device = torch.device("cuda" if use_gpu and torch.cuda.is_available() else "cpu")
-    print(f"\nAppareil utilisé : {device}")
+    print(f"Device: {device}")
     
     os.makedirs(save_dir, exist_ok=True)
     
@@ -161,7 +157,7 @@ def train(
     # Modèle - utiliser 512 fréquence bins 
     model = UNet(n_freq_bins=512, n_time_frames=128, n_channels=16, n_layers=6).to(device)
     total_params = sum(p.numel() for p in model.parameters())
-    print(f"\nNombre de paramètres du modèle : {total_params:,}")
+    print(f"Modèle: {total_params:,} paramètres")
     
     criterion = MaskedL1Loss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, betas=(0.9, 0.999), weight_decay=1e-5)
@@ -172,15 +168,14 @@ def train(
     best_loss = float('inf')
     
     if resume_from and os.path.exists(resume_from):
-        print(f"\nChargement du checkpoint : {resume_from}")
+        print(f"Chargement checkpoint: {resume_from}")
         start_epoch, best_loss = load_checkpoint(resume_from, model, optimizer, device)
     elif os.path.exists(os.path.join(save_dir, 'best_model.pth')):
         checkpoint_path = os.path.join(save_dir, 'best_model.pth')
-        print(f"\nChargement du checkpoint : {checkpoint_path}")
+        print(f"Chargement checkpoint: {checkpoint_path}")
         start_epoch, best_loss = load_checkpoint(checkpoint_path, model, optimizer, device)
     
-    print(f"\nDébut de l'entraînement (Epoch {start_epoch} à {n_epochs})...")
-    print("-" * 70)
+    print(f"Entraînement: Epoch {start_epoch}-{n_epochs}")
     
     train_losses = []
     val_losses = []
@@ -206,8 +201,7 @@ def train(
         current_lr = optimizer.param_groups[0]['lr']
         
         # Afficher les informations
-        print(f"\nEpoch {epoch}/{n_epochs} :")
-        print(f"  train_loss : {train_loss:.6f}, val_loss : {val_loss:.6f}, lr : {current_lr:.2e}")
+        print(f"Epoch {epoch}/{n_epochs}: train={train_loss:.6f}, val={val_loss:.6f}, lr={current_lr:.2e}", end="")
         
         # Sauvegarder le meilleur modèle
         if val_loss < best_loss:
@@ -236,9 +230,7 @@ def train(
     }
     torch.save(final_checkpoint, os.path.join(save_dir, 'final_model.pth'))
     
-    print("\nEntraînement terminé !")
-    print(f"Meilleur loss de validation : {best_loss:.6f}")
-    print(f"Modèle sauvegardé dans : {save_dir}")
+    print(f"\nTerminé. Meilleur loss: {best_loss:.6f} | Sauvegardé dans: {save_dir}")
 
 
 if __name__ == "__main__":

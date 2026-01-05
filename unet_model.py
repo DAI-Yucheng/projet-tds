@@ -248,7 +248,7 @@ def test_unet():
     
     # Tester la propagation avant
     batch_size = 4
-    x = torch.randn(batch_size, 512, 128)  # Modifié : 512 au lieu de 513
+    x = torch.randn(batch_size, 512, 128)  
     
     print(f"\nShape d'entrée : {x.shape}")
     
@@ -262,7 +262,6 @@ def test_unet():
     assert mask.min() >= 0 and mask.max() <= 1, "Le mask devrait être dans la plage [0, 1] !"
     print("\n✓ Vérification de la plage de valeurs du mask réussie !")
     
-    # Tester l'application du mask
     estimated_vocals = mask * x
     print(f"\nShape après application du mask : {estimated_vocals.shape}")
     print(f"  Mix original : min={x.min():.4f}, max={x.max():.4f}")

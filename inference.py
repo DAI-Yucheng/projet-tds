@@ -45,9 +45,9 @@ def load_model(checkpoint_path, device='cpu', n_channels=16):
     model.to(device)
     model.eval()
     
-    print(f"Modèle chargé avec succès !")
-    print(f"  Epoch : {checkpoint.get('epoch', 'N/A')}")
-    print(f"  Loss : {checkpoint.get('loss', 'N/A'):.6f}")
+    epoch = checkpoint.get('epoch', 'N/A')
+    loss = checkpoint.get('loss', 'N/A')
+    print(f"Modèle chargé: epoch={epoch}, loss={loss:.6f}" if isinstance(loss, (int, float)) else f"Modèle chargé: epoch={epoch}")
     
     return model
 
@@ -198,30 +198,23 @@ def separate_vocals(audio_path, model, device='cpu', output_path=None):
         vocals_audio: Tableau audio vocal séparé
         sample_rate: Taux d'échantillonnage
     """
-    print(f"\nTraitement du fichier audio : {audio_path}")
+    print(f"Traitement: {audio_path}")
     
-    # 1. Charger l'audio (conserver le taux d'échantillonnage original)
+    
     audio, original_sr = librosa.load(audio_path, sr=None, mono=False)
-    print(f"  Taux d'échantillonnage original : {original_sr} Hz")
     original_length = len(audio[0] if len(audio.shape) > 1 else audio) / original_sr
-    print(f"  Longueur de l'audio : {original_length:.2f} secondes")
     
-    # 2. Convertir en spectrogramme (rééchantillonner à 8192Hz)
-    print("  Conversion en spectrogramme...")
     magnitude, phase = audio_to_spectrogram(
         audio, 
-        original_sr=original_sr,  # Passer le taux d'échantillonnage original
+        original_sr=original_sr,
         sample_rate=8192, 
         n_fft=1024, 
         hop_length=768
     )
-    print(f"  Shape du spectrogramme : {magnitude.shape}")
     
-    # 3. Attention : la nouvelle méthode n'utilise pas de normalisation, utilise directement la magnitude originale
     # Cohérent avec le data_generator utilisé lors de l'entraînement
-    mix_spec = magnitude  # Utilisation directe, pas de normalisation
+    mix_spec = magnitude  
     
-    # 4. Traiter les longs audios : traitement par blocs (si plus de 128 frames)
     patch_frames = 128
     hop_frames = patch_frames // 2  # 50% de chevauchement (cohérent avec l'entraînement)
     
@@ -231,7 +224,6 @@ def separate_vocals(audio_path, model, device='cpu', output_path=None):
         estimated_vocals_magnitude = mask * mix_spec  # mask * mix = vocals
     else:
         # Audio long, traitement par blocs
-        print(f"  Audio long, traitement par blocs (patch_frames={patch_frames}, chevauchement=50%)...")
         estimated_vocals_magnitude = np.zeros_like(mix_spec)
         weight = np.zeros_like(mix_spec)
         
@@ -240,12 +232,11 @@ def separate_vocals(audio_path, model, device='cpu', output_path=None):
             patch = mix_spec[:, start:end]
             
             mask_patch = predict_mask(model, patch, device)
-            estimated_patch = mask_patch * patch  # mask * mix = vocals
+            estimated_patch = mask_patch * patch  
             
             estimated_vocals_magnitude[:, start:end] += estimated_patch
             weight[:, start:end] += 1.0
         
-        # Traiter la partie restante
         if start + patch_frames < magnitude.shape[1]:
             patch = mix_spec[:, -patch_frames:]
             mask_patch = predict_mask(model, patch, device)
@@ -256,9 +247,7 @@ def separate_vocals(audio_path, model, device='cpu', output_path=None):
         # Normaliser (gérer le chevauchement)
         estimated_vocals_magnitude /= (weight + 1e-8)
     
-    # 5. Reconstruire l'audio (utiliser la phase du mix original)
-    print("  Reconstruction de l'audio...")
-    # L'audio reconstruit est à un taux d'échantillonnage de 8192Hz
+    # Reconstruire l'audio
     vocals_audio_8192 = spectrogram_to_audio(
         estimated_vocals_magnitude, 
         phase, 
@@ -266,23 +255,14 @@ def separate_vocals(audio_path, model, device='cpu', output_path=None):
         n_fft=1024
     )
     
-    # 6. Rééchantillonnage au taux d'échantillonnage original
-    print(f"  Rééchantillonnage de 8192 Hz vers {original_sr} Hz...")
     if original_sr != 8192:
         vocals_audio = librosa.resample(vocals_audio_8192, orig_sr=8192, target_sr=original_sr)
     else:
         vocals_audio = vocals_audio_8192
     
-    # Vérifier la longueur
-    reconstructed_length = len(vocals_audio) / original_sr
-    print(f"  Longueur de l'audio reconstruit : {reconstructed_length:.2f} secondes")
-    if abs(reconstructed_length - original_length) > 1.0:
-        print(f"  ⚠️  ATTENTION : Longueur différente de l'original ({original_length:.2f}s vs {reconstructed_length:.2f}s)")
-    
-    # 7. Sauvegarder le fichier audio
     if output_path:
         sf.write(output_path, vocals_audio, original_sr)
-        print(f"  ✓ Audio vocal sauvegardé : {output_path}")
+        print(f"✓ Sauvegardé: {output_path}")
     
     return vocals_audio, original_sr
 
@@ -297,11 +277,9 @@ def visualize_prediction(mix_spec, mask, estimated_vocals, save_path=None):
         estimated_vocals: Vocals estimés (mask * mix)
         save_path: Chemin de sauvegarde (optionnel)
     """
-    # Nouvelle méthode : pas besoin de dénormalisation, utilisation directe
     
     fig, axes = plt.subplots(2, 2, figsize=(16, 10))
     
-    # Mix (original)
     im1 = axes[0, 0].imshow(
         np.log(mix_spec + 1e-8),  # Échelle log pour une meilleure visualisation
         aspect='auto',
@@ -327,9 +305,8 @@ def visualize_prediction(mix_spec, mask, estimated_vocals, save_path=None):
     axes[0, 1].set_ylabel('Bins de Fréquence')
     plt.colorbar(im2, ax=axes[0, 1])
     
-    # Vocals Estimés (après dénormalisation)
     im3 = axes[1, 0].imshow(
-        np.log(estimated_vocals + 1e-8),  # Échelle log pour une meilleure visualisation
+        np.log(estimated_vocals + 1e-8),  
         aspect='auto',
         origin='lower',
         cmap='viridis'
@@ -358,7 +335,7 @@ def visualize_prediction(mix_spec, mask, estimated_vocals, save_path=None):
     
     if save_path:
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
-        print(f"  Image sauvegardée : {save_path}")
+        print(f"Image sauvegardée: {save_path}")
     else:
         plt.show()
 
@@ -376,7 +353,6 @@ def find_latest_checkpoint(checkpoint_dir="vocal_checkpoints"):
     if not os.path.exists(checkpoint_dir):
         return None
     
-    # Ordre de priorité : best_model.pth > final_model.pth > autres par date de modification
     best_model_path = os.path.join(checkpoint_dir, "best_model.pth")
     final_model_path = os.path.join(checkpoint_dir, "final_model.pth")
     
@@ -385,7 +361,6 @@ def find_latest_checkpoint(checkpoint_dir="vocal_checkpoints"):
     elif os.path.exists(final_model_path):
         return final_model_path
     else:
-        # Chercher tous les fichiers .pth, trier par date de modification
         checkpoint_files = []
         for file in os.listdir(checkpoint_dir):
             if file.endswith('.pth'):
@@ -394,7 +369,6 @@ def find_latest_checkpoint(checkpoint_dir="vocal_checkpoints"):
                 checkpoint_files.append((mtime, file_path))
         
         if checkpoint_files:
-            # Trier par date de modification décroissante, retourner le plus récent
             checkpoint_files.sort(reverse=True)
             return checkpoint_files[0][1]
     
@@ -410,63 +384,39 @@ def test_inference(audio_path=None, checkpoint_path=None, n_channels=16):
         checkpoint_path: Chemin du checkpoint du modèle (si None, recherche automatique du plus récent)
         n_channels: Nombre de canaux du modèle (doit correspondre à l'entraînement)
     """
-    print("=" * 70)
-    print("Inférence de Séparation Vocale U-Net")
-    print("=" * 70)
-    
     # Si aucun checkpoint n'est spécifié, rechercher automatiquement le plus récent
     if checkpoint_path is None:
-        print("\nRecherche du checkpoint le plus récent...")
         checkpoint_path = find_latest_checkpoint()
-        if checkpoint_path:
-            print(f"  ✓ Checkpoint trouvé : {checkpoint_path}")
-        else:
-            print("  ✗ Aucun checkpoint trouvé dans le dossier 'checkpoints'")
-            print("  Veuillez d'abord entraîner le modèle : python train.py")
+        if not checkpoint_path:
+            print("✗ Aucun checkpoint trouvé. Entraînez d'abord le modèle: python train.py")
             return
     else:
-        # Si un checkpoint est spécifié, vérifier s'il existe
         if not os.path.exists(checkpoint_path):
-            print(f"\n⚠️  Checkpoint spécifié introuvable : {checkpoint_path}")
-            print("Tentative de recherche automatique...")
             checkpoint_path = find_latest_checkpoint()
-            if checkpoint_path:
-                print(f"  ✓ Checkpoint trouvé : {checkpoint_path}")
-            else:
-                print("  ✗ Aucun checkpoint trouvé")
-                print("  Veuillez d'abord entraîner le modèle : python train.py")
+            if not checkpoint_path:
+                print("✗ Checkpoint introuvable. Entraînez d'abord le modèle: python train.py")
                 return
-    
-    # Vérifier le fichier du modèle
-    if not os.path.exists(checkpoint_path):
-        print(f"\nErreur : fichier modèle introuvable {checkpoint_path}")
-        print("Veuillez d'abord entraîner le modèle : python train.py")
-        return
     
     # Charger le modèle
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print(f"\nAppareil utilisé : {device}")
     model = load_model(checkpoint_path, device, n_channels=n_channels)
     
     # Traiter l'audio
     if audio_path and os.path.exists(audio_path):
-        # Utiliser le fichier audio spécifié
         output_path = audio_path.replace('.wav', '_vocals.wav').replace('.mp3', '_vocals.wav')
         if output_path == audio_path:
             output_path = audio_path + '_vocals.wav'
         
         vocals_audio, sr = separate_vocals(audio_path, model, device, output_path)
         
-        # Visualisation (traiter un petit segment pour la visualisation)
-        print("\nGénération de la visualisation...")
         magnitude, phase = audio_to_spectrogram(vocals_audio[:sr*5], sample_rate=8192)  # 5 premières secondes
         mix_magnitude, _ = audio_to_spectrogram(
             librosa.load(audio_path, sr=8192, duration=5)[0],
             sample_rate=8192
         )
-        mix_spec = mix_magnitude  # Nouvelle méthode : pas de normalisation
+        mix_spec = mix_magnitude  
         mask = predict_mask(model, mix_spec, device)
-        estimated_vocals = mask * mix_spec  # mask * mix = vocals
+        estimated_vocals = mask * mix_spec  
         
         visualize_prediction(
             mix_magnitude, mask, estimated_vocals,
@@ -479,40 +429,33 @@ def test_inference(audio_path=None, checkpoint_path=None, n_channels=16):
             import musdb
             musdb_path = "MUSDB18/musdb18"
             if os.path.exists(musdb_path):
-                print(f"\nChargement de l'audio de test depuis MUSDB...")
                 mus = musdb.DB(root=musdb_path, download=False)
                 if len(mus.tracks) > 0:
                     track = mus.tracks[0]
-                    print(f"  Utilisation du track : {track.name}")
+                    print(f"Track: {track.name}")
                     
-                    # Charger l'audio du mix
                     mix_audio = track.audio.T
                     if len(mix_audio.shape) > 1:
                         mix_audio = np.mean(mix_audio, axis=0)
                     
-                    # Sauvegarder le fichier temporaire
                     temp_path = "temp_mix.wav"
                     sf.write(temp_path, mix_audio, 44100)
                     
-                    # Séparer la voix
                     output_path = "output_vocals.wav"
                     vocals_audio, sr = separate_vocals(temp_path, model, device, output_path)
                     
-                    # Nettoyer le fichier temporaire
                     if os.path.exists(temp_path):
                         os.remove(temp_path)
                     
-                    print(f"\n✓ Inférence terminée !")
-                    print(f"  Entrée : {track.name}")
-                    print(f"  Sortie : {output_path}")
+                    print(f"✓ Terminé: {output_path}")
                 else:
-                    print("  Aucun track disponible dans MUSDB")
+                    print("✗ Aucun track disponible dans MUSDB")
             else:
-                print(f"\nErreur : dataset MUSDB introuvable : {musdb_path}")
-                print("Veuillez spécifier le chemin du fichier audio : python inference.py --audio <path>")
+                print(f"✗ Dataset MUSDB introuvable: {musdb_path}")
+                print("Spécifiez un fichier audio: python inference.py --audio <path>")
         except Exception as e:
-            print(f"\nErreur : {e}")
-            print("Veuillez spécifier le chemin du fichier audio : python inference.py --audio <path>")
+            print(f"✗ Erreur: {e}")
+            print("Spécifiez un fichier audio: python inference.py --audio <path>")
 
 
 if __name__ == "__main__":
