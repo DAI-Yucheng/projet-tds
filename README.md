@@ -149,38 +149,66 @@ python train.py --epochs 20 --batch-size 16 --lr 5e-4 --n-songs 10
 - `--lr` : 5e-4 (taux d'apprentissage)
 - `--n-songs` : 5-10 (pour un entraînement rapide)
 
-### Étape 3 : Utiliser le modèle pour séparer la voix
-Créer un nouveau sous répertoire `vocal_checkpoints` (le répertoire `checkpoints` est inaccessible quand on entraîne le modèle sur le GPU de Jupiter) et faites :
-```bash
-cp checkpoints/* vocal_checkpoints/ 
-```
-Puis:
-```bash
-# Spécifier le checkpoint
-python inference.py --audio mon_mix.wav --n-channels 16 --checkpoint vocal_checkpoints/best_model.pth
+### Étape 3 : Séparer les vocals du test set MUSDB
 
-# Utiliser le dataset MUSDB (première chanson)
-python inference.py
-```
-Le fichier vocal sera sauvegardé avec le suffixe `output_vocals.wav`.
-
-### Étape 4 : Evaluer le modèle U-Net sur le test set de MUSDB et calculer les métriques standard (SDR, SIR, SAR)
+Le script `inference.py` sépare automatiquement les vocals des chansons du test set MUSDB et les sauvegarde dans `vocal_separation/`.
 
 ```bash
+# Séparer la première chanson (par défaut)
+python inference.py --n-songs 1
+
+# Séparer les 10 premières chansons
+python inference.py --n-songs 10
+
+# Séparer TOUTES les chansons du test set (50 tracks)
+python inference.py --n-songs 9999
+
 # Spécifier un checkpoint particulier
-python evaluate.py --n-channels 16 --checkpoint vocal_checkpoints/best_model.pth
+python inference.py --n-songs 10 --checkpoint vocal_checkpoints/best_model.pth
 
-# Évaluer seulement les 5 premiers tracks (pour tester rapidement)
-python evaluate.py --n-tracks 5
+# Séparer un fichier audio spécifique (mode fichier unique)
+python inference.py --audio mon_mix.wav --checkpoint vocal_checkpoints/best_model.pth
+```
+
+**Paramètres** :
+- `--n-songs` (défaut: None = 1ère chanson uniquement)
+  - `N` : Sépare les N premières chansons du test set
+  - `9999` : Sépare TOUTES les chansons du test set
+- `--checkpoint` : Chemin du modèle (si None, recherche automatique dans `vocal_checkpoints/`)
+- `--musdb-path` : Chemin MUSDB (défaut: `MUSDB18/musdb18/test`)
+- `--output-dir` : Répertoire de sortie (défaut: `vocal_separation/`)
+
+Les fichiers séparés seront sauvegardés dans `vocal_separation/` avec le format `{nom_track}_vocals.wav`.
+
+### Étape 4 : Évaluer les vocals séparés avec museval
+
+Le script `evaluate.py` évalue les vocals déjà séparés (étape 3) en les comparant aux vraies vocals de MUSDB pour calculer les métriques SDR/SIR/SAR.
+
+```bash
+# Évaluer les 8 premières chansons séparées (par défaut)
+python evaluate.py
+
+# Évaluer 10 chansons
+python evaluate.py --n-tracks 10
+
+# Évaluer TOUTES les chansons dans vocal_separation/
+python evaluate.py --n-tracks 9999
 
 # Changer le répertoire de sortie
-python evaluate.py --output-dir ./my_eval_results
+python evaluate.py --n-tracks 9999 --output-dir ./my_eval_results
 ```
-Le script va automatiquement :
-1. Chercher le checkpoint dans `vocal_checkpoints/` ou `checkpoints/`
-2. Charger le dataset MUSDB depuis `MUSDB18/musdb18/`
-3. Évaluer tous les tracks du test set
-4. Sauvegarder les résultats dans `./eval/`
+
+**Paramètres** :
+- `--n-tracks` (défaut: None = 8 premières chansons)
+  - `N` : Évalue les N premières chansons de `vocal_separation/`
+  - `9999` : Évalue TOUTES les chansons disponibles
+- `--separation-dir` : Répertoire des vocals séparés (défaut: `vocal_separation/`)
+- `--musdb-path` : Chemin MUSDB pour les références (défaut: `MUSDB18/musdb18`)
+- `--output-dir` : Répertoire de sortie (défaut: `./eval/`)
+
+Les résultats seront sauvegardés dans :
+- `eval/evaluation_results.csv` : Métriques détaillées par track
+- `eval/summary.txt` : Résumé global (moyennes et écarts-types)
 
 Résultats d'évaluation --> [eval_results.md](guide_book/eval_results.md)
 ## Structure des Fichiers

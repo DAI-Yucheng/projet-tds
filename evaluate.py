@@ -122,61 +122,72 @@ def separate_track(model, track, device='cpu', sample_rate=8192, n_fft=1024, hop
     return vocals_audio, accompaniment_audio, original_sr
 
 
-def evaluate_model(
-    checkpoint_path,
+def evaluate_separated_vocals(
     musdb_path="MUSDB18/musdb18",
-    n_channels=16,
+    separation_dir="vocal_separation",
     n_tracks=None,
-    output_dir="./eval",
-    device=None
+    output_dir="./eval"
 ):
     """
-    Évaluer le modèle sur le test set de MUSDB
+    Évaluer les vocals déjà séparés avec museval
     
     Args:
-        checkpoint_path: Chemin du checkpoint du modèle
-        musdb_path: Chemin du dataset MUSDB
-        n_channels: Nombre de canaux du modèle
-        n_tracks: Nombre de tracks à évaluer (None = tous)
+        musdb_path: Chemin du dataset MUSDB (pour les références)
+        separation_dir: Répertoire contenant les vocals séparés
+        n_tracks: Nombre de tracks à évaluer (None = tous les fichiers disponibles)
         output_dir: Répertoire pour sauvegarder les résultats
-        device: Appareil ('cpu' ou 'cuda', None = auto)
         
     Returns:
         results_df: DataFrame avec les résultats pour chaque track
         summary: Dictionnaire avec les moyennes globales
     """
     print("=" * 70)
-    print("ÉVALUATION DU MODÈLE U-NET POUR LA SÉPARATION VOCALE")
+    print("ÉVALUATION DES VOCALS SÉPARÉS")
     print("=" * 70)
     
-    # Déterminer l'appareil
-    if device is None:
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print(f"\nAppareil utilisé : {device}")
+    # Vérifier que le répertoire de séparation existe
+    if not os.path.exists(separation_dir):
+        print(f"\n✗ Répertoire introuvable : {separation_dir}")
+        print(f"   Veuillez d'abord séparer les vocals avec :")
+        print(f"   python inference.py --n-songs N")
+        return None, None
     
-    # Charger le modèle
-    print(f"\nChargement du modèle depuis : {checkpoint_path}")
-    model = load_model(checkpoint_path, device, n_channels=n_channels)
-    
-    # Charger le dataset MUSDB
+    # Charger le dataset MUSDB (pour les références)
     print(f"\nChargement du dataset MUSDB depuis : {musdb_path}")
-    if not os.path.exists(musdb_path):
-        print(f"  Chemin introuvable : {musdb_path}")
-        print("   Tentative avec le chemin par défaut...")
-        musdb_path = "MUSDB18/musdb18"
-    
     try:
         mus = musdb.DB(root=musdb_path, download=False)
     except Exception as e:
-        print(f" Erreur lors du chargement du dataset : {e}")
+        print(f"✗ Erreur lors du chargement : {e}")
         return None, None
     
     # Obtenir les tracks de test
     test_tracks = [t for t in mus.tracks if t.subset == 'test']
-    if n_tracks is not None:
-        test_tracks = test_tracks[:n_tracks]
     
-    print(f"\nNombre de tracks de test à évaluer : {len(test_tracks)}")
+    # Lister les fichiers séparés disponibles
+    separated_files = []
+    for f in os.listdir(separation_dir):
+        if f.endswith('_vocals.wav'):
+            separated_files.append(f)
+    
+    print(f"\nFichiers séparés trouvés : {len(separated_files)}")
+    
+    if len(separated_files) == 0:
+        print("✗ Aucun fichier séparé trouvé")
+        print(f"   Veuillez d'abord séparer les vocals avec :")
+        print(f"   python inference.py --n-songs N")
+        return None, None
+    
+    # Limiter le nombre de tracks si spécifié
+    if n_tracks is None:
+        # Par défaut : 8 premières chansons
+        separated_files = separated_files[:8]
+        print(f"Évaluation des 8 premières chansons : {len(separated_files)} fichiers")
+    elif n_tracks == 9999:
+        # 9999 = tous les fichiers
+        print(f"Évaluation de TOUS les fichiers : {len(separated_files)} fichiers")
+    else:
+        separated_files = separated_files[:n_tracks]
+        print(f"Évaluation limitée à : {len(separated_files)} fichiers")
     
     # Créer le répertoire de sortie
     os.makedirs(output_dir, exist_ok=True)
@@ -184,29 +195,42 @@ def evaluate_model(
     # Liste pour stocker les résultats
     results = []
     
-    # Évaluer chaque track
+    # Évaluer chaque fichier
     print("\n" + "=" * 70)
-    print("ÉVALUATION DES TRACKS")
+    print("ÉVALUATION EN COURS")
     print("=" * 70)
     
-    for i, track in enumerate(tqdm(test_tracks, desc="Évaluation")):
+    for i, vocals_file in enumerate(separated_files):
         try:
-            print(f"\n[{i+1}/{len(test_tracks)}] Évaluation de : {track.name}")
+            # Extraire le nom du track depuis le nom du fichier
+            track_name = vocals_file.replace('_vocals.wav', '').replace('_', '/')
             
-            # Séparer la piste
-            vocals_audio, accompaniment_audio, original_sr = separate_track(
-                model, track, device=device
-            )
+            # Trouver le track correspondant dans MUSDB
+            matching_track = None
+            for track in test_tracks:
+                if track.name in track_name or track_name in track.name:
+                    matching_track = track
+                    break
             
-            # Préparer les estimates pour museval
-            # museval nécessite un format stéréo (samples, channels)
-            target_length = track.audio.shape[0]
+            if matching_track is None:
+                print(f"\n[{i+1}/{len(separated_files)}] ⚠️  Track non trouvé : {track_name}")
+                continue
             
-            # Ajuster la longueur si nécessaire
+            print(f"\n[{i+1}/{len(separated_files)}] Évaluation : {matching_track.name}")
+            
+            # Charger les vocals séparés
+            vocals_path = os.path.join(separation_dir, vocals_file)
+            vocals_audio, sr = librosa.load(vocals_path, sr=matching_track.rate, mono=True)
+            
+            # Ajuster la longueur
+            target_length = matching_track.audio.shape[0]
             vocals_audio = librosa.util.fix_length(vocals_audio, size=target_length)
-            accompaniment_audio = librosa.util.fix_length(accompaniment_audio, size=target_length)
             
-            # Convertir en stéréo (dupliquer le canal mono)
+            # Calculer l'accompagnement
+            mix_mono = np.mean(matching_track.audio, axis=1)
+            accompaniment_audio = mix_mono - vocals_audio
+            
+            # Convertir en stéréo pour museval
             vocals_stereo = np.stack([vocals_audio, vocals_audio], axis=1)
             accompaniment_stereo = np.stack([accompaniment_audio, accompaniment_audio], axis=1)
             
@@ -218,22 +242,20 @@ def evaluate_model(
             
             # Évaluer avec museval
             scores = museval.eval_mus_track(
-                track,
+                matching_track,
                 estimates,
                 output_dir=output_dir
             )
             
-            # Extraire les scores depuis le DataFrame
+            # Extraire les scores
             df = scores.df
-            
-            # Calculer les moyennes pour vocals
             vocals_sdr = df[(df.target == 'vocals') & (df.metric == 'SDR')]['score'].mean()
             vocals_sir = df[(df.target == 'vocals') & (df.metric == 'SIR')]['score'].mean()
             vocals_sar = df[(df.target == 'vocals') & (df.metric == 'SAR')]['score'].mean()
             
             # Stocker les résultats
             results.append({
-                'track': track.name,
+                'track': matching_track.name,
                 'SDR': vocals_sdr,
                 'SIR': vocals_sir,
                 'SAR': vocals_sar
@@ -242,7 +264,7 @@ def evaluate_model(
             print(f"  ✓ SDR: {vocals_sdr:.2f} dB | SIR: {vocals_sir:.2f} dB | SAR: {vocals_sar:.2f} dB")
             
         except Exception as e:
-            print(f"  Erreur lors de l'évaluation de {track.name}: {e}")
+            print(f"  ✗ Erreur : {e}")
             continue
     
     # Créer le DataFrame des résultats
@@ -297,13 +319,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(
-        description='Évaluer le modèle U-Net pour la séparation vocale'
-    )
-    parser.add_argument(
-        '--checkpoint',
-        type=str,
-        default=None,
-        help='Chemin du checkpoint du modèle (si None, cherche automatiquement)'
+        description='Évaluer les vocals séparés avec museval'
     )
     parser.add_argument(
         '--musdb-path',
@@ -312,16 +328,16 @@ def main():
         help='Chemin du dataset MUSDB'
     )
     parser.add_argument(
-        '--n-channels',
-        type=int,
-        default=16,
-        help='Nombre de canaux du modèle'
+        '--separation-dir',
+        type=str,
+        default='vocal_separation',
+        help='Répertoire contenant les vocals séparés'
     )
     parser.add_argument(
         '--n-tracks',
         type=int,
         default=None,
-        help='Nombre de tracks à évaluer (None = tous)'
+        help='Nombre de tracks à évaluer (None = tous les fichiers disponibles)'
     )
     parser.add_argument(
         '--output-dir',
@@ -329,46 +345,15 @@ def main():
         default='./eval',
         help='Répertoire pour sauvegarder les résultats'
     )
-    parser.add_argument(
-        '--cpu',
-        action='store_true',
-        help='Forcer l\'utilisation du CPU'
-    )
     
     args = parser.parse_args()
     
-    # Trouver le checkpoint si non spécifié
-    checkpoint_path = args.checkpoint
-    if checkpoint_path is None:
-        # Chercher dans vocal_checkpoints ou checkpoints
-        possible_paths = [
-            'vocal_checkpoints/best_model.pth',
-            'checkpoints/best_model.pth',
-            'vocal_checkpoints/final_model.pth',
-            'checkpoints/final_model.pth'
-        ]
-        
-        for path in possible_paths:
-            if os.path.exists(path):
-                checkpoint_path = path
-                print(f"✓ Checkpoint trouvé : {checkpoint_path}")
-                break
-        
-        if checkpoint_path is None:
-            print(" Aucun checkpoint trouvé. Veuillez spécifier --checkpoint")
-            return
-    
-    # Déterminer l'appareil
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    
     # Lancer l'évaluation
-    results_df, summary = evaluate_model(
-        checkpoint_path=checkpoint_path,
+    results_df, summary = evaluate_separated_vocals(
         musdb_path=args.musdb_path,
-        n_channels=args.n_channels,
+        separation_dir=args.separation_dir,
         n_tracks=args.n_tracks,
-        output_dir=args.output_dir,
-        device=device
+        output_dir=args.output_dir
     )
     
     if results_df is not None:

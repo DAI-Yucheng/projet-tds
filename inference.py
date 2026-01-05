@@ -375,6 +375,124 @@ def find_latest_checkpoint(checkpoint_dir="vocal_checkpoints"):
     return None
 
 
+def separate_musdb_tracks(checkpoint_path=None, n_channels=16, n_songs=None, musdb_path="MUSDB18/musdb18/test", output_dir="vocal_separation"):
+    """
+    Séparer les vocals de chansons du test set MUSDB
+    
+    Args:
+        checkpoint_path: Chemin du checkpoint du modèle (si None, recherche automatique)
+        n_channels: Nombre de canaux du modèle
+        n_songs: Nombre de chansons à séparer (None = première chanson uniquement)
+        musdb_path: Chemin du dataset MUSDB
+        output_dir: Répertoire pour sauvegarder les vocals séparés
+        
+    Returns:
+        Liste des chemins des fichiers créés
+    """
+    print("=" * 70)
+    print("SÉPARATION VOCALE - TEST SET MUSDB")
+    print("=" * 70)
+    
+    # Rechercher le checkpoint si non spécifié
+    if checkpoint_path is None:
+        print("\nRecherche du checkpoint...")
+        checkpoint_path = find_latest_checkpoint()
+        if checkpoint_path:
+            print(f"  ✓ Checkpoint trouvé : {checkpoint_path}")
+        else:
+            print("  ✗ Aucun checkpoint trouvé")
+            print("  Veuillez d'abord entraîner le modèle : python train.py")
+            return []
+    
+    if not os.path.exists(checkpoint_path):
+        print(f"\n✗ Checkpoint introuvable : {checkpoint_path}")
+        return []
+    
+    # Charger le modèle
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f"\nAppareil utilisé : {device}")
+    model = load_model(checkpoint_path, device, n_channels=n_channels)
+    
+    # Charger le dataset MUSDB
+    print(f"\nChargement du dataset MUSDB depuis : {musdb_path}")
+    try:
+        import musdb
+        mus = musdb.DB(root=musdb_path, download=False)
+    except Exception as e:
+        print(f"✗ Erreur lors du chargement : {e}")
+        return []
+    
+    # Obtenir les tracks de test
+    test_tracks = [t for t in mus.tracks if t.subset == 'test']
+    
+    # Déterminer le nombre de chansons à traiter
+    if n_songs is None:
+        # Par défaut : première chanson uniquement
+        test_tracks = test_tracks[:1] if len(test_tracks) > 0 else []
+        print(f"\nTraitement de la première chanson du test set")
+    elif n_songs == 9999:
+        # 9999 = tous les fichiers
+        print(f"\nTraitement de TOUS les fichiers du test set ({len(test_tracks)} tracks)")
+    else:
+        test_tracks = test_tracks[:n_songs]
+        print(f"\nTraitement de {len(test_tracks)} chanson(s) du test set")
+    
+    if len(test_tracks) == 0:
+        print("✗ Aucun track disponible")
+        return []
+    
+    # Créer le répertoire de sortie
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Séparer chaque track
+    output_files = []
+    print("\n" + "=" * 70)
+    print("SÉPARATION EN COURS")
+    print("=" * 70)
+    
+    for i, track in enumerate(test_tracks):
+        try:
+            print(f"\n[{i+1}/{len(test_tracks)}] Traitement : {track.name}")
+            
+            # Obtenir l'audio du mix
+            mix_audio = track.audio  # stéréo, 44100Hz
+            if len(mix_audio.shape) == 2:
+                mix_audio_mono = np.mean(mix_audio, axis=1)
+            else:
+                mix_audio_mono = mix_audio
+            
+            # Créer un fichier temporaire
+            temp_path = "temp_mix.wav"
+            sf.write(temp_path, mix_audio_mono, track.rate)
+            
+            # Nom du fichier de sortie
+            safe_name = track.name.replace('/', '_').replace('\\', '_')
+            output_path = os.path.join(output_dir, f"{safe_name}_vocals.wav")
+            
+            # Séparer les vocals
+            vocals_audio, sr = separate_vocals(temp_path, model, device, output_path)
+            
+            # Nettoyer le fichier temporaire
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            
+            output_files.append(output_path)
+            print(f"  ✓ Sauvegardé : {output_path}")
+            
+        except Exception as e:
+            print(f"  ✗ Erreur : {e}")
+            continue
+    
+    print("\n" + "=" * 70)
+    print(f"SÉPARATION TERMINÉE : {len(output_files)}/{len(test_tracks)} fichiers créés")
+    print("=" * 70)
+    print(f"\nFichiers sauvegardés dans : {output_dir}/")
+    print(f"\nPour évaluer ces fichiers, utilisez :")
+    print(f"  python evaluate.py --separation-dir {output_dir} --n-tracks {len(output_files)}")
+    
+    return output_files
+
+
 def test_inference(audio_path=None, checkpoint_path=None, n_channels=16):
     """
     Tester la fonction d'inférence : séparer la voix d'un fichier audio
@@ -427,7 +545,7 @@ def test_inference(audio_path=None, checkpoint_path=None, n_channels=16):
         # Essayer de charger l'audio de test depuis MUSDB
         try:
             import musdb
-            musdb_path = "MUSDB18/musdb18"
+            musdb_path = "MUSDB18/musdb18/test"
             if os.path.exists(musdb_path):
                 mus = musdb.DB(root=musdb_path, download=False)
                 if len(mus.tracks) > 0:
@@ -462,14 +580,28 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser(description='Inférence de séparation vocale U-Net')
-    parser.add_argument('--audio', type=str, default=None, help='Chemin du fichier audio d\'entrée')
-    parser.add_argument('--checkpoint', type=str, default=None, help='Chemin du checkpoint du modèle (si None, recherche automatique du plus récent)')
-    parser.add_argument('--n-channels', type=int, default=16, help='Nombre de canaux du modèle (doit correspondre à l\'entraînement)')
+    parser.add_argument('--audio', type=str, default=None, help='Chemin du fichier audio d\'entrée (pour un seul fichier)')
+    parser.add_argument('--checkpoint', type=str, default=None, help='Chemin du checkpoint du modèle (si None, recherche automatique)')
+    parser.add_argument('--n-channels', type=int, default=16, help='Nombre de canaux du modèle')
+    parser.add_argument('--n-songs', type=int, default=None, help='Nombre de chansons MUSDB à séparer (None = mode fichier unique)')
+    parser.add_argument('--musdb-path', type=str, default='MUSDB18/musdb18/test', help='Chemin du dataset MUSDB')
+    parser.add_argument('--output-dir', type=str, default='vocal_separation', help='Répertoire de sortie pour MUSDB')
     
     args = parser.parse_args()
     
-    test_inference(
-        audio_path=args.audio,
-        checkpoint_path=args.checkpoint,  # None = recherche automatique
-        n_channels=args.n_channels
-    )
+    # Si --n-songs est spécifié, utiliser le mode MUSDB
+    if args.n_songs is not None:
+        separate_musdb_tracks(
+            checkpoint_path=args.checkpoint,
+            n_channels=args.n_channels,
+            n_songs=args.n_songs,
+            musdb_path=args.musdb_path,
+            output_dir=args.output_dir
+        )
+    else:
+        # Sinon, mode fichier unique
+        test_inference(
+            audio_path=args.audio,
+            checkpoint_path=args.checkpoint,
+            n_channels=args.n_channels
+        )
